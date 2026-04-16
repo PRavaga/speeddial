@@ -2,6 +2,9 @@
 // Speed Dial — Tab Command Center v2
 // ===================================================================
 
+import { initAuth, signIn, signOut, isSignedIn, getUser } from './auth.js';
+import { initSync, syncNow, getSyncStatus } from './sync.js';
+
 // ----- State -----
 let tabs = [];
 let groups = [];
@@ -39,9 +42,17 @@ const backupBtn     = $('backup-btn');
 const sessionsCount = $('sessions-count');
 const sessionsToggle= $('sessions-toggle');
 const sessionsList  = $('sessions-list');
-const settingsBtn   = $('settings-btn');
+const settingsBtn      = $('settings-btn');
 const settingsDropdown = $('settings-dropdown');
-const themeToggle   = $('theme-toggle');
+const themeToggle      = $('theme-toggle');
+const syncSignedOut    = $('sync-signed-out');
+const syncSignedIn     = $('sync-signed-in');
+const googleSigninBtn  = $('google-signin-btn');
+const syncAvatar       = $('sync-avatar');
+const syncEmail        = $('sync-email');
+const syncStatusText   = $('sync-status-text');
+const syncNowBtn       = $('sync-now-btn');
+const syncSignoutBtn   = $('sync-signout-btn');
 
 // ===================================================================
 // Init
@@ -49,6 +60,8 @@ const themeToggle   = $('theme-toggle');
 
 document.addEventListener('DOMContentLoaded', async () => {
   await loadTheme();
+  await initAuth();
+  await initSync();
   await loadActiveGroup();
   await loadData();
   setupSearch();
@@ -56,7 +69,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupBackup();
   setupSessions();
   setupSettings();
+  setupSyncUI();
   loadBackupStatus();
+  renderSyncUI();
   setInterval(loadBackupStatus, 30000);
 });
 
@@ -564,14 +579,12 @@ function setupSettings() {
     settingsDropdown.classList.toggle('open');
   });
 
-  // Close dropdown when clicking outside
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.settings-wrap')) {
       settingsDropdown.classList.remove('open');
     }
   });
 
-  // Theme toggle
   themeToggle.addEventListener('change', () => {
     const theme = themeToggle.checked ? 'light' : 'dark';
     applyTheme(theme);
@@ -591,6 +604,85 @@ async function loadTheme() {
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   themeToggle.checked = theme === 'light';
+}
+
+// ===================================================================
+// Sync UI
+// ===================================================================
+
+function setupSyncUI() {
+  googleSigninBtn.addEventListener('click', async () => {
+    try {
+      googleSigninBtn.disabled = true;
+      googleSigninBtn.textContent = 'Signing in...';
+      await signIn();
+      await renderSyncUI();
+      // Trigger initial sync
+      syncNowBtn.classList.add('spinning');
+      syncStatusText.textContent = 'Syncing...';
+      const result = await syncNow();
+      syncNowBtn.classList.remove('spinning');
+      syncStatusText.textContent = result.ok ? 'Synced just now' : `Error: ${result.reason}`;
+      if (result.ok) {
+        loadSessions();
+        loadTheme();
+      }
+      toast(result.ok ? 'Signed in and synced' : 'Signed in, sync failed');
+    } catch (e) {
+      toast(`Sign in failed: ${e.message}`);
+    } finally {
+      googleSigninBtn.disabled = false;
+      googleSigninBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#4285F4" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#34A853" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59A14.5 14.5 0 019.5 24c0-1.59.28-3.14.76-4.59l-7.98-6.19A23.99 23.99 0 000 24c0 3.77.9 7.35 2.56 10.52l7.97-5.93z"/><path fill="#EA4335" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 5.93C6.51 42.62 14.62 48 24 48z"/></svg>
+        Sign in`;
+    }
+  });
+
+  syncNowBtn.addEventListener('click', async () => {
+    syncNowBtn.classList.add('spinning');
+    syncStatusText.textContent = 'Syncing...';
+    const result = await syncNow();
+    syncNowBtn.classList.remove('spinning');
+    if (result.ok) {
+      syncStatusText.textContent = 'Synced just now';
+      loadSessions();
+    } else {
+      syncStatusText.textContent = `Error: ${result.reason}`;
+    }
+  });
+
+  syncSignoutBtn.addEventListener('click', async () => {
+    await signOut();
+    renderSyncUI();
+    toast('Signed out');
+  });
+}
+
+async function renderSyncUI() {
+  const signedIn = await isSignedIn();
+
+  if (signedIn) {
+    const user = await getUser();
+    const status = await getSyncStatus();
+
+    syncSignedOut.style.display = 'none';
+    syncSignedIn.style.display = 'flex';
+
+    if (user) {
+      syncAvatar.src = user.picture || '';
+      syncAvatar.style.display = user.picture ? 'block' : 'none';
+      syncEmail.textContent = user.email || user.name || 'Signed in';
+    }
+
+    if (status.lastSync) {
+      syncStatusText.textContent = `Synced ${timeAgo(status.lastSync)}`;
+    } else {
+      syncStatusText.textContent = status.configured ? 'Not synced yet' : 'API not configured';
+    }
+  } else {
+    syncSignedOut.style.display = 'flex';
+    syncSignedIn.style.display = 'none';
+  }
 }
 
 // ===================================================================

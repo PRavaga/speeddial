@@ -2,38 +2,72 @@
 // Speed Dial — Background Service Worker
 // ===================================================================
 
+import { initAuth, isSignedIn } from './auth.js';
+import { initSync, syncNow } from './sync.js';
+
 // ----- Backup config -----
 const MAX_BACKUPS = 20;
 
 // ----- Thumbnail config -----
-const CAPTURE_DELAY = 2000;       // Wait 2s after tab switch before capturing
-const MIN_RECAPTURE = 5 * 60000;  // Don't recapture same URL within 5 min
+const CAPTURE_DELAY = 2000;
+const MIN_RECAPTURE = 5 * 60000;
 const MAX_THUMBNAILS = 500;
-const THUMB_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
+const THUMB_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 const THUMB_WIDTH = 400;
 const THUMB_HEIGHT = 250;
 const THUMB_QUALITY = 0.5;
 
 // ===================================================================
-// Auto-backup
+// Auto-backup + sync alarms
 // ===================================================================
 
 chrome.alarms.create('auto-backup', { periodInMinutes: 5 });
+chrome.alarms.create('sync-interval', { periodInMinutes: 15 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'auto-backup') await createBackup('auto');
   if (alarm.name === 'thumb-cleanup') await cleanupThumbnails();
+  if (alarm.name === 'sync-interval') {
+    await initAuth();
+    await initSync();
+    if (await isSignedIn()) {
+      try { await syncNow(); } catch {}
+    }
+  }
 });
 
-chrome.runtime.onStartup.addListener(() => {
+chrome.runtime.onStartup.addListener(async () => {
   createBackup('startup');
   chrome.alarms.create('thumb-cleanup', { periodInMinutes: 60 });
+  // Init auth/sync on startup
+  await initAuth();
+  await initSync();
 });
 
 chrome.runtime.onInstalled.addListener(() => {
   createBackup('install');
   chrome.alarms.create('thumb-cleanup', { periodInMinutes: 60 });
 });
+
+// ===================================================================
+// Message handler — newtab.js can request sync operations
+// ===================================================================
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.action === 'syncNow') {
+    (async () => {
+      await initAuth();
+      await initSync();
+      const result = await syncNow();
+      sendResponse(result);
+    })();
+    return true; // async response
+  }
+});
+
+// ===================================================================
+// Auto-backup
+// ===================================================================
 
 async function createBackup(type = 'auto') {
   try {
@@ -85,13 +119,11 @@ async function createBackup(type = 'auto') {
 
 let captureTimer = null;
 
-// Capture when user switches to a tab
 chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
   clearTimeout(captureTimer);
   captureTimer = setTimeout(() => captureTab(tabId, windowId), CAPTURE_DELAY);
 });
 
-// Capture when active tab finishes loading
 chrome.tabs.onUpdated.addListener((tabId, changes, tab) => {
   if (changes.status === 'complete' && tab.active) {
     clearTimeout(captureTimer);
@@ -105,28 +137,14 @@ async function captureTab(tabId, windowId) {
     if (!tab || !tab.active || !tab.url || tab.status !== 'complete') return;
     if (isInternalUrl(tab.url)) return;
 
-    // Don't recapture too frequently
     const key = thumbKey(tab.url);
     const existing = await chrome.storage.local.get(key);
     if (existing[key] && (Date.now() - existing[key].ts) < MIN_RECAPTURE) return;
 
-    // Capture the visible tab
-    const dataUrl = await chrome.tabs.captureVisibleTab(windowId, {
-      format: 'jpeg',
-      quality: 60
-    });
-
-    // Resize to thumbnail
+    const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 60 });
     const thumbnail = await resizeThumbnail(dataUrl);
-
-    // Store
-    await chrome.storage.local.set({
-      [key]: { data: thumbnail, ts: Date.now() }
-    });
-  } catch {
-    // Silently fail — capture can fail for many legitimate reasons:
-    // window minimized, tab navigating, permission denied, etc.
-  }
+    await chrome.storage.local.set({ [key]: { data: thumbnail, ts: Date.now() } });
+  } catch {}
 }
 
 async function resizeThumbnail(dataUrl) {
@@ -168,11 +186,9 @@ async function cleanupThumbnails() {
     const thumbKeys = Object.keys(all).filter(k => k.startsWith('thumb:'));
     const now = Date.now();
 
-    // Remove expired
     const expired = thumbKeys.filter(k => (now - (all[k]?.ts || 0)) > THUMB_MAX_AGE);
     if (expired.length > 0) await chrome.storage.local.remove(expired);
 
-    // If still over limit, remove oldest
     const remaining = thumbKeys.filter(k => !expired.includes(k));
     if (remaining.length > MAX_THUMBNAILS) {
       remaining.sort((a, b) => (all[a]?.ts || 0) - (all[b]?.ts || 0));
@@ -186,15 +202,10 @@ async function cleanupThumbnails() {
 // Utilities
 // ===================================================================
 
-function thumbKey(url) {
-  return `thumb:${url}`;
-}
+function thumbKey(url) { return `thumb:${url}`; }
 
 function isInternalUrl(url) {
   if (!url) return true;
-  return url.startsWith('chrome://') ||
-         url.startsWith('edge://') ||
-         url.startsWith('chrome-extension://') ||
-         url.startsWith('about:') ||
-         url.startsWith('data:');
+  return url.startsWith('chrome://') || url.startsWith('edge://') ||
+         url.startsWith('chrome-extension://') || url.startsWith('about:') || url.startsWith('data:');
 }
