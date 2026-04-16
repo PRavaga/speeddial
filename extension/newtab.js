@@ -12,6 +12,25 @@ let searchQuery = '';
 let activeGroupId = 'all'; // 'all' | group id number | 'ungrouped'
 let thumbnails = {};        // url → data:image/jpeg;base64,...
 
+// ----- Render scheduler (anti-flicker) -----
+let renderFrame = null;
+let fullReloadPending = false;
+
+function scheduleRender(fullReload = false) {
+  if (fullReload) fullReloadPending = true;
+  if (renderFrame) return;
+  renderFrame = requestAnimationFrame(async () => {
+    renderFrame = null;
+    if (fullReloadPending) {
+      fullReloadPending = false;
+      await loadData();
+    } else {
+      renderGroupTabs();
+      await renderTiles();
+    }
+  });
+}
+
 // ----- Constants -----
 const GROUP_COLORS = {
   grey:   '#8b8fa3',
@@ -213,10 +232,10 @@ function buildGroupTab(id, name, count, color) {
 
 async function renderTiles() {
   const visible = getVisibleTabs();
-  tileGrid.innerHTML = '';
 
   if (visible.length === 0) {
-    tileGrid.innerHTML = `
+    const empty = document.createElement('div');
+    empty.innerHTML = `
       <div class="empty-state">
         <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
           <rect x="4" y="4" width="32" height="32" rx="8" stroke="currentColor" stroke-width="1.5"/>
@@ -224,6 +243,7 @@ async function renderTiles() {
         </svg>
         <p>${searchQuery ? 'No tabs match your search' : 'No tabs in this group'}</p>
       </div>`;
+    tileGrid.replaceChildren(empty.firstElementChild);
     updateStats(0);
     return;
   }
@@ -231,10 +251,10 @@ async function renderTiles() {
   // Load thumbnails for visible tabs
   await loadThumbnails(visible.map(t => t.url).filter(Boolean));
 
-  visible.forEach((tab, i) => {
-    const tile = buildTile(tab, i);
-    tileGrid.appendChild(tile);
-  });
+  // Build all tiles in a fragment, then swap in one operation (no flicker)
+  const frag = document.createDocumentFragment();
+  visible.forEach((tab, i) => frag.appendChild(buildTile(tab, i)));
+  tileGrid.replaceChildren(frag);
 
   updateStats(visible.length);
 }
@@ -289,11 +309,19 @@ function buildTile(tab, index) {
 
   tile.innerHTML = `
     ${showBadge ? `<div class="tile-group-badge" title="${esc(group.title || 'Unnamed')}"></div>` : ''}
-    <button class="tile-close" title="Close tab">
-      <svg width="12" height="12" viewBox="0 0 12 12">
-        <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" fill="none" stroke-width="1.3" stroke-linecap="round"/>
-      </svg>
-    </button>
+    <div class="tile-actions-overlay">
+      <button class="tile-action-btn tile-retake" title="Retake screenshot">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M1 4.5V2.5a1 1 0 011-1h1.5M11 7.5v2a1 1 0 01-1 1H8.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          <circle cx="6" cy="6" r="2.5" stroke="currentColor" stroke-width="1.2"/>
+        </svg>
+      </button>
+      <button class="tile-action-btn tile-close" title="Close tab">
+        <svg width="12" height="12" viewBox="0 0 12 12">
+          <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" fill="none" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
     <div class="tile-visual">${visualHtml}</div>
     <div class="tile-info" title="${escAttr(tab.title || '')}">
       <div class="tile-title">${titleHtml}</div>
@@ -302,7 +330,7 @@ function buildTile(tab, index) {
 
   // Click → switch to tab
   tile.addEventListener('click', (e) => {
-    if (e.target.closest('.tile-close')) return;
+    if (e.target.closest('.tile-action-btn')) return;
     switchToTab(tab.id, tab.windowId);
   });
 
@@ -310,6 +338,12 @@ function buildTile(tab, index) {
   tile.querySelector('.tile-close').addEventListener('click', (e) => {
     e.stopPropagation();
     closeTileTab(tab.id, tile);
+  });
+
+  // Retake screenshot
+  tile.querySelector('.tile-retake').addEventListener('click', (e) => {
+    e.stopPropagation();
+    retakeScreenshot(tab);
   });
 
   return tile;
@@ -334,9 +368,20 @@ async function closeTileTab(tabId, tileEl) {
   setTimeout(async () => {
     try { await chrome.tabs.remove(tabId); } catch {}
     tabs = tabs.filter(t => t.id !== tabId);
-    renderGroupTabs();
-    renderTiles();
+    scheduleRender();
   }, 180);
+}
+
+async function retakeScreenshot(tab) {
+  // Delete cached thumbnail so it falls back to favicon immediately
+  const key = `thumb:${tab.url}`;
+  await chrome.storage.local.remove(key);
+  delete thumbnails[tab.url];
+
+  // Switch to the tab — background's onActivated handler will capture it
+  await switchToTab(tab.id, tab.windowId);
+
+  toast('Switched to tab — screenshot will update');
 }
 
 // ===================================================================
@@ -686,27 +731,42 @@ async function renderSyncUI() {
 }
 
 // ===================================================================
-// Live updates
+// Live updates — debounced to prevent flicker
+//
+// Source of truth: the BROWSER is always primary.
+// This extension is a read-only view + management layer.
+// We never maintain our own tab state — we read from chrome.tabs.
+// Backups are historical snapshots. Restore creates new tabs.
 // ===================================================================
 
-chrome.tabs.onCreated.addListener(() => loadData());
+chrome.tabs.onCreated.addListener(() => scheduleRender(true));
+
 chrome.tabs.onRemoved.addListener((id) => {
   tabs = tabs.filter(t => t.id !== id);
-  renderGroupTabs();
-  renderTiles();
+  scheduleRender();
 });
+
+// Only re-render if something the user can see changed
 chrome.tabs.onUpdated.addListener((id, changes) => {
   const t = tabs.find(t => t.id === id);
-  if (t) { Object.assign(t, changes); renderTiles(); }
+  if (!t) return;
+  const visible = changes.title !== undefined || changes.url !== undefined ||
+                  changes.favIconUrl !== undefined || changes.status !== undefined ||
+                  changes.pinned !== undefined || changes.groupId !== undefined;
+  if (visible) {
+    Object.assign(t, changes);
+    scheduleRender();
+  }
 });
-chrome.tabs.onMoved.addListener(() => loadData());
-chrome.tabs.onAttached.addListener(() => loadData());
-chrome.tabs.onDetached.addListener(() => loadData());
 
-if (chrome.tabGroups.onCreated)  chrome.tabGroups.onCreated.addListener(() => loadData());
-if (chrome.tabGroups.onUpdated)  chrome.tabGroups.onUpdated.addListener(() => loadData());
-if (chrome.tabGroups.onRemoved)  chrome.tabGroups.onRemoved.addListener(() => loadData());
-if (chrome.tabGroups.onMoved)    chrome.tabGroups.onMoved.addListener(() => loadData());
+chrome.tabs.onMoved.addListener(() => scheduleRender(true));
+chrome.tabs.onAttached.addListener(() => scheduleRender(true));
+chrome.tabs.onDetached.addListener(() => scheduleRender(true));
+
+if (chrome.tabGroups.onCreated)  chrome.tabGroups.onCreated.addListener(() => scheduleRender(true));
+if (chrome.tabGroups.onUpdated)  chrome.tabGroups.onUpdated.addListener(() => scheduleRender(true));
+if (chrome.tabGroups.onRemoved)  chrome.tabGroups.onRemoved.addListener(() => scheduleRender(true));
+if (chrome.tabGroups.onMoved)    chrome.tabGroups.onMoved.addListener(() => scheduleRender(true));
 
 // ===================================================================
 // Utilities

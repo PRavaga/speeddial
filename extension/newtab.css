@@ -531,11 +531,21 @@ body {
   background: var(--tile-color, var(--c-grey));
 }
 
-/* Close button */
-.tile-close {
+/* Action buttons overlay (top-right) */
+.tile-actions-overlay {
   position: absolute;
   top: 6px;
   right: 6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.12s;
+  z-index: 5;
+}
+
+.tile:hover .tile-actions-overlay { opacity: 1; }
+
+.tile-action-btn {
   width: 24px;
   height: 24px;
   border-radius: 6px;
@@ -547,16 +557,17 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
   transition: all 0.12s;
-  z-index: 5;
 }
 
-.tile:hover .tile-close { opacity: 1; }
-
-.tile-close:hover {
+.tile-action-btn.tile-close:hover {
   background: rgba(255, 99, 99, 0.3);
   color: var(--c-red);
+}
+
+.tile-action-btn.tile-retake:hover {
+  background: rgba(91, 159, 255, 0.3);
+  color: var(--c-blue);
 }
 
 /* Group color badge (shown in "All" view) */
@@ -1019,14 +1030,19 @@ mark {
     0 0 0 1px var(--border-subtle);
 }
 
-[data-theme="light"] .tile-close {
+[data-theme="light"] .tile-action-btn {
   background: rgba(255, 255, 255, 0.85);
   color: var(--text-tertiary);
 }
 
-[data-theme="light"] .tile-close:hover {
+[data-theme="light"] .tile-action-btn.tile-close:hover {
   background: rgba(220, 60, 60, 0.12);
   color: var(--c-red);
+}
+
+[data-theme="light"] .tile-action-btn.tile-retake:hover {
+  background: rgba(60, 120, 220, 0.12);
+  color: var(--c-blue);
 }
 
 [data-theme="light"] .tile-favicon-badge {
