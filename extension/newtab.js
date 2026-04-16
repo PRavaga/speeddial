@@ -526,11 +526,12 @@ async function deleteSession(idx) {
 function updateStats(visibleCount) {
   const totalTabs = tabs.length;
   const wins = new Set(tabs.map(t => t.windowId)).size;
+  const p = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
   statsEl.innerHTML =
     `<span><span class="stat-value">${visibleCount}</span>` +
     `${visibleCount !== totalTabs ? ` / ${totalTabs}` : ''} tabs</span>` +
-    `<span><span class="stat-value">${groups.length}</span> groups</span>` +
-    `<span><span class="stat-value">${wins}</span> windows</span>`;
+    `<span><span class="stat-value">${groups.length}</span> ${groups.length === 1 ? 'group' : 'groups'}</span>` +
+    `<span><span class="stat-value">${wins}</span> ${wins === 1 ? 'window' : 'windows'}</span>`;
 }
 
 // ===================================================================
