@@ -39,18 +39,23 @@ const backupBtn     = $('backup-btn');
 const sessionsCount = $('sessions-count');
 const sessionsToggle= $('sessions-toggle');
 const sessionsList  = $('sessions-list');
+const settingsBtn   = $('settings-btn');
+const settingsDropdown = $('settings-dropdown');
+const themeToggle   = $('theme-toggle');
 
 // ===================================================================
 // Init
 // ===================================================================
 
 document.addEventListener('DOMContentLoaded', async () => {
+  await loadTheme();
   await loadActiveGroup();
   await loadData();
   setupSearch();
   setupKeyboard();
   setupBackup();
   setupSessions();
+  setupSettings();
   loadBackupStatus();
   setInterval(loadBackupStatus, 30000);
 });
@@ -547,6 +552,45 @@ async function loadActiveGroup() {
 
 async function saveActiveGroup() {
   await chrome.storage.local.set({ activeGroup: activeGroupId });
+}
+
+// ===================================================================
+// Settings
+// ===================================================================
+
+function setupSettings() {
+  settingsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    settingsDropdown.classList.toggle('open');
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.settings-wrap')) {
+      settingsDropdown.classList.remove('open');
+    }
+  });
+
+  // Theme toggle
+  themeToggle.addEventListener('change', () => {
+    const theme = themeToggle.checked ? 'light' : 'dark';
+    applyTheme(theme);
+    chrome.storage.local.set({ theme });
+  });
+}
+
+async function loadTheme() {
+  try {
+    const { theme } = await chrome.storage.local.get('theme');
+    applyTheme(theme || 'dark');
+  } catch {
+    applyTheme('dark');
+  }
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  themeToggle.checked = theme === 'light';
 }
 
 // ===================================================================
