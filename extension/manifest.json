@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Speed Dial",
+  "version": "1.0.0",
+  "description": "Tab command center — organize, manage, and backup your browser tabs",
+  "permissions": ["tabs", "tabGroups", "storage", "alarms", "favicon"],
+  "chrome_url_overrides": {
+    "newtab": "newtab.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
