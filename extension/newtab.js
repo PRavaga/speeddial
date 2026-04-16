@@ -7,6 +7,7 @@ let tabs = [];
 let groups = [];
 let searchQuery = '';
 let activeGroupId = 'all'; // 'all' | group id number | 'ungrouped'
+let thumbnails = {};        // url → data:image/jpeg;base64,...
 
 // ----- Constants -----
 const GROUP_COLORS = {
@@ -190,7 +191,7 @@ function buildGroupTab(id, name, count, color) {
 // Tile grid
 // ===================================================================
 
-function renderTiles() {
+async function renderTiles() {
   const visible = getVisibleTabs();
   tileGrid.innerHTML = '';
 
@@ -207,12 +208,28 @@ function renderTiles() {
     return;
   }
 
+  // Load thumbnails for visible tabs
+  await loadThumbnails(visible.map(t => t.url).filter(Boolean));
+
   visible.forEach((tab, i) => {
     const tile = buildTile(tab, i);
     tileGrid.appendChild(tile);
   });
 
   updateStats(visible.length);
+}
+
+async function loadThumbnails(urls) {
+  const keys = urls.map(u => `thumb:${u}`);
+  try {
+    const data = await chrome.storage.local.get(keys);
+    thumbnails = {};
+    for (const [key, val] of Object.entries(data)) {
+      if (val?.data) thumbnails[key.replace('thumb:', '')] = val.data;
+    }
+  } catch {
+    thumbnails = {};
+  }
 }
 
 function buildTile(tab, index) {
@@ -232,9 +249,23 @@ function buildTile(tab, index) {
   const favicon = tab.favIconUrl || faviconFor(tab.url);
   const letter = (domain[0] || '?').toUpperCase();
   const showBadge = activeGroupId === 'all' && group;
+  const thumb = thumbnails[tab.url];
 
   const titleHtml = searchQuery ? highlight(tab.title || 'Untitled', searchQuery) : esc(tab.title || 'Untitled');
   const urlHtml = searchQuery ? highlight(domain, searchQuery) : esc(domain);
+
+  // Visual area: screenshot thumbnail if available, otherwise large favicon
+  let visualHtml;
+  if (thumb) {
+    visualHtml = `
+      <img class="tile-thumb" src="${escAttr(thumb)}" alt="" loading="lazy">
+      <img class="tile-favicon-badge" src="${escAttr(favicon)}" alt="" loading="lazy"
+           onerror="this.style.display='none'">`;
+  } else {
+    visualHtml = `
+      <img class="tile-favicon" src="${escAttr(favicon)}" alt="" loading="lazy"
+           onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'tile-letter',textContent:'${letter}'}))">`;
+  }
 
   tile.innerHTML = `
     ${showBadge ? `<div class="tile-group-badge" title="${esc(group.title || 'Unnamed')}"></div>` : ''}
@@ -243,11 +274,7 @@ function buildTile(tab, index) {
         <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" fill="none" stroke-width="1.3" stroke-linecap="round"/>
       </svg>
     </button>
-    <div class="tile-visual">
-      <img class="tile-favicon" src="${escAttr(favicon)}" alt="" loading="lazy"
-           onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'tile-letter',textContent:'${letter}'}))"
-      >
-    </div>
+    <div class="tile-visual">${visualHtml}</div>
     <div class="tile-info" title="${escAttr(tab.title || '')}">
       <div class="tile-title">${titleHtml}</div>
       <div class="tile-url">${urlHtml}</div>

@@ -1,13 +1,39 @@
+// ===================================================================
+// Speed Dial — Background Service Worker
+// ===================================================================
+
+// ----- Backup config -----
 const MAX_BACKUPS = 20;
+
+// ----- Thumbnail config -----
+const CAPTURE_DELAY = 2000;       // Wait 2s after tab switch before capturing
+const MIN_RECAPTURE = 5 * 60000;  // Don't recapture same URL within 5 min
+const MAX_THUMBNAILS = 500;
+const THUMB_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
+const THUMB_WIDTH = 400;
+const THUMB_HEIGHT = 250;
+const THUMB_QUALITY = 0.5;
+
+// ===================================================================
+// Auto-backup
+// ===================================================================
 
 chrome.alarms.create('auto-backup', { periodInMinutes: 5 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'auto-backup') await createBackup('auto');
+  if (alarm.name === 'thumb-cleanup') await cleanupThumbnails();
 });
 
-chrome.runtime.onStartup.addListener(() => createBackup('startup'));
-chrome.runtime.onInstalled.addListener(() => createBackup('install'));
+chrome.runtime.onStartup.addListener(() => {
+  createBackup('startup');
+  chrome.alarms.create('thumb-cleanup', { periodInMinutes: 60 });
+});
+
+chrome.runtime.onInstalled.addListener(() => {
+  createBackup('install');
+  chrome.alarms.create('thumb-cleanup', { periodInMinutes: 60 });
+});
 
 async function createBackup(type = 'auto') {
   try {
@@ -25,7 +51,7 @@ async function createBackup(type = 'auto') {
     let tabCount = 0;
 
     for (const tab of tabs) {
-      if (tab.url?.startsWith('chrome://') || tab.url?.startsWith('edge://') || tab.url?.startsWith('chrome-extension://')) continue;
+      if (isInternalUrl(tab.url)) continue;
       const entry = { title: tab.title || '', url: tab.url || '', favIconUrl: tab.favIconUrl || '', pinned: tab.pinned };
       tabCount++;
       if (tab.groupId !== -1 && groupMap[tab.groupId]) {
@@ -51,4 +77,124 @@ async function createBackup(type = 'auto') {
   } catch (e) {
     console.error('Backup failed:', e);
   }
+}
+
+// ===================================================================
+// Thumbnail capture
+// ===================================================================
+
+let captureTimer = null;
+
+// Capture when user switches to a tab
+chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
+  clearTimeout(captureTimer);
+  captureTimer = setTimeout(() => captureTab(tabId, windowId), CAPTURE_DELAY);
+});
+
+// Capture when active tab finishes loading
+chrome.tabs.onUpdated.addListener((tabId, changes, tab) => {
+  if (changes.status === 'complete' && tab.active) {
+    clearTimeout(captureTimer);
+    captureTimer = setTimeout(() => captureTab(tabId, tab.windowId), 1500);
+  }
+});
+
+async function captureTab(tabId, windowId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab || !tab.active || !tab.url || tab.status !== 'complete') return;
+    if (isInternalUrl(tab.url)) return;
+
+    // Don't recapture too frequently
+    const key = thumbKey(tab.url);
+    const existing = await chrome.storage.local.get(key);
+    if (existing[key] && (Date.now() - existing[key].ts) < MIN_RECAPTURE) return;
+
+    // Capture the visible tab
+    const dataUrl = await chrome.tabs.captureVisibleTab(windowId, {
+      format: 'jpeg',
+      quality: 60
+    });
+
+    // Resize to thumbnail
+    const thumbnail = await resizeThumbnail(dataUrl);
+
+    // Store
+    await chrome.storage.local.set({
+      [key]: { data: thumbnail, ts: Date.now() }
+    });
+  } catch {
+    // Silently fail — capture can fail for many legitimate reasons:
+    // window minimized, tab navigating, permission denied, etc.
+  }
+}
+
+async function resizeThumbnail(dataUrl) {
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  const bitmap = await createImageBitmap(blob);
+
+  const scale = Math.min(THUMB_WIDTH / bitmap.width, THUMB_HEIGHT / bitmap.height, 1);
+  const w = Math.round(bitmap.width * scale);
+  const h = Math.round(bitmap.height * scale);
+
+  const canvas = new OffscreenCanvas(w, h);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close();
+
+  const outBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: THUMB_QUALITY });
+  return blobToDataUrl(outBlob);
+}
+
+async function blobToDataUrl(blob) {
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 8192;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return `data:${blob.type};base64,${btoa(binary)}`;
+}
+
+// ===================================================================
+// Thumbnail cleanup
+// ===================================================================
+
+async function cleanupThumbnails() {
+  try {
+    const all = await chrome.storage.local.get(null);
+    const thumbKeys = Object.keys(all).filter(k => k.startsWith('thumb:'));
+    const now = Date.now();
+
+    // Remove expired
+    const expired = thumbKeys.filter(k => (now - (all[k]?.ts || 0)) > THUMB_MAX_AGE);
+    if (expired.length > 0) await chrome.storage.local.remove(expired);
+
+    // If still over limit, remove oldest
+    const remaining = thumbKeys.filter(k => !expired.includes(k));
+    if (remaining.length > MAX_THUMBNAILS) {
+      remaining.sort((a, b) => (all[a]?.ts || 0) - (all[b]?.ts || 0));
+      const excess = remaining.slice(0, remaining.length - MAX_THUMBNAILS);
+      await chrome.storage.local.remove(excess);
+    }
+  } catch {}
+}
+
+// ===================================================================
+// Utilities
+// ===================================================================
+
+function thumbKey(url) {
+  return `thumb:${url}`;
+}
+
+function isInternalUrl(url) {
+  if (!url) return true;
+  return url.startsWith('chrome://') ||
+         url.startsWith('edge://') ||
+         url.startsWith('chrome-extension://') ||
+         url.startsWith('about:') ||
+         url.startsWith('data:');
 }

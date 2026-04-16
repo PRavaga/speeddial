@@ -381,6 +381,32 @@ body {
   pointer-events: none;
 }
 
+/* Screenshot thumbnail */
+.tile-thumb {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 1;
+}
+
+/* Small favicon overlay when thumbnail is shown */
+.tile-favicon-badge {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  object-fit: contain;
+  z-index: 3;
+  background: var(--bg-card);
+  padding: 2px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+/* Large centered favicon (no thumbnail) */
 .tile-favicon {
   width: 36px;
   height: 36px;
