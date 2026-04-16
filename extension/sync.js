@@ -107,7 +107,7 @@ async function collectLocalData() {
   return {
     version: storage.syncVersion || 0,
     lastModified: Date.now(),
-    sessions: (storage.backups || []).slice(0, 20),
+    sessions: (storage.backups || []).slice(0, 100),
     settings: { theme: storage.theme || 'dark' },
     pinnedSites: storage.pinnedSites || []
   };
@@ -119,7 +119,7 @@ async function collectLocalData() {
 
 async function applyRemoteData(doc) {
   const updates = {};
-  if (doc.sessions) updates.backups = doc.sessions.slice(0, 20);
+  if (doc.sessions) updates.backups = doc.sessions.slice(0, 100);
   if (doc.settings?.theme) updates.theme = doc.settings.theme;
   if (doc.pinnedSites) updates.pinnedSites = doc.pinnedSites;
   await chrome.storage.local.set(updates);
@@ -154,7 +154,7 @@ function mergeSessions(localSessions, remoteSessions) {
 
   // Sort newest first, keep max 20
   merged.sort((a, b) => b.timestamp - a.timestamp);
-  return merged.slice(0, 20);
+  return merged.slice(0, 100);
 }
 
 function mergeSettings(local, remote, localTs, remoteTs) {

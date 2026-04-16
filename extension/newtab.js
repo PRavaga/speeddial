@@ -497,7 +497,7 @@ async function manualBackup() {
 
   const { backups = [] } = await chrome.storage.local.get('backups');
   backups.unshift(backup);
-  if (backups.length > 20) backups.length = 20;
+  if (backups.length > 100) backups.length = 100;
   await chrome.storage.local.set({ backups, lastBackup: backup.timestamp });
 
   setTimeout(() => backupBtn.classList.remove('saving'), 500);

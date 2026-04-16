@@ -6,7 +6,7 @@ import { initAuth, isSignedIn } from './auth.js';
 import { initSync, syncNow } from './sync.js';
 
 // ----- Backup config -----
-const MAX_BACKUPS = 20;
+const MAX_BACKUPS = 100;
 
 // ----- Thumbnail config -----
 const CAPTURE_DELAY = 2000;
@@ -47,6 +47,37 @@ chrome.runtime.onStartup.addListener(async () => {
 chrome.runtime.onInstalled.addListener(() => {
   createBackup('install');
   chrome.alarms.create('thumb-cleanup', { periodInMinutes: 60 });
+});
+
+// ===================================================================
+// Safety nets — backup before data is lost
+// ===================================================================
+
+// Backup when a window closes (catches accidental "close all tabs")
+chrome.windows.onRemoved.addListener(async (windowId) => {
+  // Check if any windows remain
+  const remaining = await chrome.windows.getAll();
+  // If this was the last real window (only popup/devtools left), emergency backup
+  const realWindows = remaining.filter(w => w.type === 'normal');
+  if (realWindows.length === 0) {
+    await createBackup('window-close');
+  }
+});
+
+// Backup when many tabs are closed at once (e.g. closing a tab group)
+let recentlyClosedCount = 0;
+let batchCloseTimer = null;
+
+chrome.tabs.onRemoved.addListener(() => {
+  recentlyClosedCount++;
+  clearTimeout(batchCloseTimer);
+  batchCloseTimer = setTimeout(async () => {
+    // 3+ tabs closed within 500ms = batch close, worth a backup
+    if (recentlyClosedCount >= 3) {
+      await createBackup('batch-close');
+    }
+    recentlyClosedCount = 0;
+  }, 500);
 });
 
 // ===================================================================
@@ -95,6 +126,19 @@ async function createBackup(type = 'auto') {
       }
     }
 
+    // Don't save empty backups
+    if (tabCount === 0) return;
+
+    // Don't save if identical to the last backup (same tab count + URLs)
+    const { backups = [] } = await chrome.storage.local.get('backups');
+    if (backups.length > 0 && type === 'auto') {
+      const last = backups[0];
+      if (last.tabCount === tabCount && last.groupCount === groups.length) {
+        // Same counts — skip to avoid duplicate auto-backups
+        return;
+      }
+    }
+
     const backup = {
       timestamp: Date.now(),
       type,
@@ -104,7 +148,6 @@ async function createBackup(type = 'auto') {
       groupCount: groups.length
     };
 
-    const { backups = [] } = await chrome.storage.local.get('backups');
     backups.unshift(backup);
     if (backups.length > MAX_BACKUPS) backups.length = MAX_BACKUPS;
     await chrome.storage.local.set({ backups, lastBackup: backup.timestamp });
