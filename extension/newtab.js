@@ -1,36 +1,36 @@
 // ===================================================================
-// Speed Dial — Tab Command Center
+// Speed Dial — Tab Command Center v2
 // ===================================================================
 
 // ----- State -----
 let tabs = [];
 let groups = [];
 let searchQuery = '';
-let collapsedGroups = new Set();
+let activeGroupId = 'all'; // 'all' | group id number | 'ungrouped'
 
 // ----- Constants -----
 const GROUP_COLORS = {
-  grey:   { hex: '#8b8fa3' },
-  blue:   { hex: '#5b9fff' },
-  red:    { hex: '#ff6363' },
-  yellow: { hex: '#ffc44a' },
-  green:  { hex: '#4adf7e' },
-  pink:   { hex: '#ff6eb4' },
-  purple: { hex: '#a78bfa' },
-  cyan:   { hex: '#22d3ee' },
-  orange: { hex: '#ff8a4a' },
+  grey:   '#8b8fa3',
+  blue:   '#5b9fff',
+  red:    '#ff6363',
+  yellow: '#ffc44a',
+  green:  '#4adf7e',
+  pink:   '#ff6eb4',
+  purple: '#a78bfa',
+  cyan:   '#22d3ee',
+  orange: '#ff8a4a',
 };
 
 const FALLBACK_ICON = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">' +
   '<rect width="16" height="16" rx="3" fill="#252938"/>' +
-  '<circle cx="8" cy="8" r="3" fill="#4c4f62"/>' +
-  '</svg>'
+  '<circle cx="8" cy="8" r="3" fill="#4c4f62"/></svg>'
 )}`;
 
 // ----- DOM refs -----
 const $ = (s) => document.getElementById(s);
-const grid          = $('grid');
+const tileGrid      = $('tile-grid');
+const groupTabsEl   = $('group-tabs');
 const searchInput   = $('search');
 const statsEl       = $('stats');
 const backupTimeEl  = $('backup-time');
@@ -44,15 +44,13 @@ const sessionsList  = $('sessions-list');
 // ===================================================================
 
 document.addEventListener('DOMContentLoaded', async () => {
-  await loadCollapsedState();
+  await loadActiveGroup();
   await loadData();
   setupSearch();
   setupKeyboard();
   setupBackup();
   setupSessions();
   loadBackupStatus();
-
-  // Refresh backup time display every 30s
   setInterval(loadBackupStatus, 30000);
 });
 
@@ -66,7 +64,6 @@ async function loadData() {
     chrome.tabGroups.query({})
   ]);
 
-  // Exclude the current new-tab page from the list
   let currentTabId = null;
   try {
     const cur = await chrome.tabs.getCurrent();
@@ -75,217 +72,200 @@ async function loadData() {
 
   tabs = rawTabs.filter(t => t.id !== currentTabId);
   groups = rawGroups;
-  render();
+
+  renderGroupTabs();
+  renderTiles();
 }
 
-function organizeByGroup() {
-  const map = new Map();
-  groups.forEach(g => map.set(g.id, { ...g, tabs: [] }));
-
-  const ungrouped = [];
+function getVisibleTabs() {
   const q = searchQuery;
+  let filtered = tabs;
 
-  for (const tab of tabs) {
-    if (q) {
+  // Search filter
+  if (q) {
+    filtered = filtered.filter(tab => {
       const t = (tab.title || '').toLowerCase();
       const u = (tab.url   || '').toLowerCase();
-      if (!t.includes(q) && !u.includes(q)) continue;
-    }
-    if (tab.groupId !== -1 && map.has(tab.groupId)) {
-      map.get(tab.groupId).tabs.push(tab);
-    } else {
-      ungrouped.push(tab);
+      return t.includes(q) || u.includes(q);
+    });
+  }
+
+  // Group filter
+  if (activeGroupId === 'all') {
+    return filtered;
+  } else if (activeGroupId === 'ungrouped') {
+    return filtered.filter(t => t.groupId === -1);
+  } else {
+    return filtered.filter(t => t.groupId === activeGroupId);
+  }
+}
+
+function getGroupForTab(tab) {
+  return groups.find(g => g.id === tab.groupId) || null;
+}
+
+// ===================================================================
+// Group tab bar
+// ===================================================================
+
+function renderGroupTabs() {
+  groupTabsEl.innerHTML = '';
+
+  // "All" tab
+  const allCount = tabs.length;
+  groupTabsEl.appendChild(buildGroupTab('all', 'All', allCount, null));
+
+  // One tab per group
+  const groupCounts = new Map();
+  for (const tab of tabs) {
+    if (tab.groupId !== -1) {
+      groupCounts.set(tab.groupId, (groupCounts.get(tab.groupId) || 0) + 1);
     }
   }
 
-  // When searching, hide empty groups
-  const organized = q
-    ? [...map.values()].filter(g => g.tabs.length > 0)
-    : [...map.values()];
+  for (const g of groups) {
+    const count = groupCounts.get(g.id) || 0;
+    groupTabsEl.appendChild(buildGroupTab(g.id, g.title || 'Unnamed', count, g.color));
+  }
 
-  return { groups: organized, ungrouped };
+  // Ungrouped tab (if any ungrouped tabs exist)
+  const ungroupedCount = tabs.filter(t => t.groupId === -1).length;
+  if (ungroupedCount > 0) {
+    groupTabsEl.appendChild(buildGroupTab('ungrouped', 'Ungrouped', ungroupedCount, null));
+  }
+}
+
+function buildGroupTab(id, name, count, color) {
+  const btn = document.createElement('button');
+  btn.className = 'group-tab';
+  if (id === 'all' || !color) btn.classList.add('tab-all');
+  if (id === activeGroupId) btn.classList.add('active');
+
+  const hex = color ? (GROUP_COLORS[color] || GROUP_COLORS.grey) : '#4c4f62';
+  btn.style.setProperty('--tab-color', hex);
+
+  btn.innerHTML = `
+    <span class="group-tab-dot" style="background:${hex}"></span>
+    <span class="group-tab-name">${esc(name)}</span>
+    <span class="group-tab-count">${count}</span>`;
+
+  // Click → switch group view
+  btn.addEventListener('click', () => {
+    activeGroupId = id;
+    saveActiveGroup();
+    renderGroupTabs();
+    renderTiles();
+  });
+
+  // Double-click → rename (only for real groups)
+  if (typeof id === 'number') {
+    const nameEl = btn.querySelector('.group-tab-name');
+    nameEl.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      nameEl.contentEditable = 'true';
+      nameEl.focus();
+      const range = document.createRange();
+      range.selectNodeContents(nameEl);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
+    nameEl.addEventListener('blur', async () => {
+      nameEl.contentEditable = 'false';
+      const newTitle = nameEl.textContent.trim();
+      if (newTitle && newTitle !== name) {
+        try { await chrome.tabGroups.update(id, { title: newTitle }); } catch {}
+      }
+    });
+    nameEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); nameEl.blur(); }
+      if (e.key === 'Escape') { nameEl.textContent = name; nameEl.blur(); }
+    });
+  }
+
+  return btn;
 }
 
 // ===================================================================
-// Render
+// Tile grid
 // ===================================================================
 
-function render() {
-  const { groups: gList, ungrouped } = organizeByGroup();
-  grid.innerHTML = '';
+function renderTiles() {
+  const visible = getVisibleTabs();
+  tileGrid.innerHTML = '';
 
-  if (gList.length === 0 && ungrouped.length === 0) {
-    grid.innerHTML = `
+  if (visible.length === 0) {
+    tileGrid.innerHTML = `
       <div class="empty-state">
         <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
           <rect x="4" y="4" width="32" height="32" rx="8" stroke="currentColor" stroke-width="1.5"/>
           <path d="M14 20h12M20 14v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
-        <p>${searchQuery ? 'No tabs match your search' : 'No open tabs'}</p>
+        <p>${searchQuery ? 'No tabs match your search' : 'No tabs in this group'}</p>
       </div>`;
-    updateStats(0, 0);
+    updateStats(0);
     return;
   }
 
-  let total = 0;
-
-  gList.forEach((g, i) => {
-    grid.appendChild(buildGroupCol(g, i));
-    total += g.tabs.length;
+  visible.forEach((tab, i) => {
+    const tile = buildTile(tab, i);
+    tileGrid.appendChild(tile);
   });
 
-  if (ungrouped.length > 0) {
-    grid.appendChild(buildUngroupedCol(ungrouped, gList.length));
-    total += ungrouped.length;
-  }
-
-  updateStats(total, gList.length);
+  updateStats(visible.length);
 }
 
-// ----- Group column -----
+function buildTile(tab, index) {
+  const tile = document.createElement('div');
+  tile.className = 'tile';
+  if (tab.active) tile.classList.add('active');
+  if (tab.pinned) tile.classList.add('pinned');
+  tile.style.animationDelay = `${index * 30}ms`;
 
-function buildGroupCol(group, idx) {
-  const col = document.createElement('div');
-  col.className = 'group-column';
-  col.style.animationDelay = `${idx * 55}ms`;
-
-  const gc = GROUP_COLORS[group.color] || GROUP_COLORS.grey;
-  col.style.setProperty('--group-color', gc.hex);
-
-  const collapsed = collapsedGroups.has(group.id);
-
-  // Header
-  const hdr = document.createElement('div');
-  hdr.innerHTML = `<div class="group-color-bar"></div>`;
-
-  const header = document.createElement('div');
-  header.className = 'group-header';
-  header.innerHTML = `
-    <div class="group-info">
-      <span class="group-title">${esc(group.title || 'Unnamed')}</span>
-      <span class="group-count">${group.tabs.length}</span>
-    </div>
-    <button class="group-collapse ${collapsed ? 'collapsed' : ''}">
-      <svg width="12" height="12" viewBox="0 0 12 12">
-        <path d="M3 4.5l3 3 3-3" stroke="currentColor" fill="none" stroke-width="1.5" stroke-linecap="round"/>
-      </svg>
-    </button>`;
-
-  col.appendChild(hdr.firstElementChild); // color bar
-  col.appendChild(header);
-
-  // Collapse toggle
-  header.querySelector('.group-collapse').addEventListener('click', () => {
-    collapsedGroups.has(group.id) ? collapsedGroups.delete(group.id) : collapsedGroups.add(group.id);
-    saveCollapsedState();
-    render();
-  });
-
-  // Rename on double-click
-  const titleEl = header.querySelector('.group-title');
-  titleEl.addEventListener('dblclick', () => {
-    titleEl.contentEditable = 'true';
-    titleEl.focus();
-    const range = document.createRange();
-    range.selectNodeContents(titleEl);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-  });
-  titleEl.addEventListener('blur', async () => {
-    titleEl.contentEditable = 'false';
-    const newTitle = titleEl.textContent.trim();
-    if (newTitle && newTitle !== (group.title || 'Unnamed')) {
-      try { await chrome.tabGroups.update(group.id, { title: newTitle }); } catch {}
-    }
-  });
-  titleEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); titleEl.blur(); }
-    if (e.key === 'Escape') { titleEl.textContent = group.title || 'Unnamed'; titleEl.blur(); }
-  });
-
-  // Tab list
-  if (!collapsed) {
-    const list = document.createElement('div');
-    list.className = 'tab-list';
-    group.tabs.forEach(tab => list.appendChild(buildTabRow(tab)));
-    col.appendChild(list);
-  }
-
-  return col;
-}
-
-// ----- Ungrouped column -----
-
-function buildUngroupedCol(ungroupedTabs, idx) {
-  const col = document.createElement('div');
-  col.className = 'group-column ungrouped';
-  col.style.animationDelay = `${idx * 55}ms`;
-  col.style.setProperty('--group-color', '#4c4f62');
-
-  col.innerHTML = `
-    <div class="group-color-bar"></div>
-    <div class="group-header">
-      <div class="group-info">
-        <span class="group-title" style="color:var(--text-secondary)">Ungrouped</span>
-        <span class="group-count">${ungroupedTabs.length}</span>
-      </div>
-    </div>`;
-
-  const list = document.createElement('div');
-  list.className = 'tab-list';
-  ungroupedTabs.forEach(tab => list.appendChild(buildTabRow(tab)));
-  col.appendChild(list);
-
-  return col;
-}
-
-// ----- Tab row -----
-
-function buildTabRow(tab) {
-  const row = document.createElement('div');
-  row.className = 'tab-row';
-  if (tab.active) row.classList.add('active');
-  if (tab.pinned) row.classList.add('pinned');
+  const group = getGroupForTab(tab);
+  const color = group ? (GROUP_COLORS[group.color] || GROUP_COLORS.grey) : '#4c4f62';
+  tile.style.setProperty('--tile-color', color);
 
   let domain = '';
   try { domain = new URL(tab.url || '').hostname.replace(/^www\./, ''); } catch {}
 
   const favicon = tab.favIconUrl || faviconFor(tab.url);
-  const title = searchQuery ? highlight(tab.title || 'Untitled', searchQuery) : esc(tab.title || 'Untitled');
+  const letter = (domain[0] || '?').toUpperCase();
+  const showBadge = activeGroupId === 'all' && group;
+
+  const titleHtml = searchQuery ? highlight(tab.title || 'Untitled', searchQuery) : esc(tab.title || 'Untitled');
   const urlHtml = searchQuery ? highlight(domain, searchQuery) : esc(domain);
 
-  row.innerHTML = `
-    <img class="tab-favicon" src="${escAttr(favicon)}" alt="" loading="lazy">
-    <div class="tab-info" title="${escAttr(tab.title || '')}">
-      <div class="tab-title">${title}</div>
-      <div class="tab-url">${urlHtml}</div>
+  tile.innerHTML = `
+    ${showBadge ? `<div class="tile-group-badge" title="${esc(group.title || 'Unnamed')}"></div>` : ''}
+    <button class="tile-close" title="Close tab">
+      <svg width="12" height="12" viewBox="0 0 12 12">
+        <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" fill="none" stroke-width="1.3" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <div class="tile-visual">
+      <img class="tile-favicon" src="${escAttr(favicon)}" alt="" loading="lazy"
+           onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'tile-letter',textContent:'${letter}'}))"
+      >
     </div>
-    <div class="tab-actions">
-      <button class="tab-action close" title="Close tab">
-        <svg width="14" height="14" viewBox="0 0 14 14">
-          <path d="M3.5 3.5l7 7M10.5 3.5l-7 7" stroke="currentColor" fill="none" stroke-width="1.3" stroke-linecap="round"/>
-        </svg>
-      </button>
+    <div class="tile-info" title="${escAttr(tab.title || '')}">
+      <div class="tile-title">${titleHtml}</div>
+      <div class="tile-url">${urlHtml}</div>
     </div>`;
 
-  // Favicon error fallback
-  const img = row.querySelector('.tab-favicon');
-  img.addEventListener('error', () => { img.src = FALLBACK_ICON; }, { once: true });
-
   // Click → switch to tab
-  row.addEventListener('click', (e) => {
-    if (e.target.closest('.tab-action')) return;
+  tile.addEventListener('click', (e) => {
+    if (e.target.closest('.tile-close')) return;
     switchToTab(tab.id, tab.windowId);
   });
 
   // Close
-  row.querySelector('.tab-action.close').addEventListener('click', (e) => {
+  tile.querySelector('.tile-close').addEventListener('click', (e) => {
     e.stopPropagation();
-    closeTab(tab.id, row);
+    closeTileTab(tab.id, tile);
   });
 
-  return row;
+  return tile;
 }
 
 // ===================================================================
@@ -299,16 +279,16 @@ async function switchToTab(tabId, windowId) {
   } catch {}
 }
 
-async function closeTab(tabId, rowEl) {
-  // Animate out
-  rowEl.style.transition = 'all 0.2s ease';
-  rowEl.style.opacity = '0';
-  rowEl.style.transform = 'translateX(12px)';
+async function closeTileTab(tabId, tileEl) {
+  tileEl.style.transition = 'all 0.2s ease';
+  tileEl.style.opacity = '0';
+  tileEl.style.transform = 'scale(0.9)';
 
   setTimeout(async () => {
     try { await chrome.tabs.remove(tabId); } catch {}
     tabs = tabs.filter(t => t.id !== tabId);
-    render();
+    renderGroupTabs();
+    renderTiles();
   }, 180);
 }
 
@@ -322,7 +302,7 @@ function setupSearch() {
     clearTimeout(timer);
     timer = setTimeout(() => {
       searchQuery = searchInput.value.trim().toLowerCase();
-      render();
+      renderTiles();
     }, 80);
   });
 }
@@ -345,13 +325,35 @@ function setupKeyboard() {
       searchInput.value = '';
       searchQuery = '';
       searchInput.blur();
-      render();
+      renderTiles();
     }
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'b') {
       e.preventDefault();
       manualBackup();
     }
+    // Left/right arrow to switch group tabs when not in input
+    if (!isEditing() && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      const ids = getGroupTabIds();
+      const curIdx = ids.indexOf(activeGroupId);
+      if (curIdx === -1) return;
+      const next = e.key === 'ArrowRight'
+        ? ids[Math.min(curIdx + 1, ids.length - 1)]
+        : ids[Math.max(curIdx - 1, 0)];
+      if (next !== activeGroupId) {
+        activeGroupId = next;
+        saveActiveGroup();
+        renderGroupTabs();
+        renderTiles();
+      }
+    }
   });
+}
+
+function getGroupTabIds() {
+  const ids = ['all'];
+  for (const g of groups) ids.push(g.id);
+  if (tabs.some(t => t.groupId === -1)) ids.push('ungrouped');
+  return ids;
 }
 
 function isEditing() {
@@ -444,7 +446,7 @@ async function loadSessions() {
         <span class="session-stats">${b.tabCount} tabs · ${b.groupCount} groups</span>
       </div>
       <div class="session-right">
-        <span class="session-type">${b.type}</span>
+        <span class="session-type">${esc(b.type)}</span>
         <button class="session-restore" data-idx="${i}">Restore</button>
         <button class="session-delete" data-idx="${i}">×</button>
       </div>
@@ -461,12 +463,10 @@ async function restoreSession(idx) {
   const b = backups[idx];
   if (!b) return;
 
-  // Open ungrouped tabs
   for (const t of b.ungrouped) {
     await chrome.tabs.create({ url: t.url, pinned: t.pinned });
   }
 
-  // Open grouped tabs and recreate groups
   for (const g of b.groups) {
     if (g.tabs.length === 0) continue;
     const ids = [];
@@ -496,41 +496,44 @@ async function deleteSession(idx) {
 // Stats
 // ===================================================================
 
-function updateStats(tabCount, groupCount) {
+function updateStats(visibleCount) {
+  const totalTabs = tabs.length;
   const wins = new Set(tabs.map(t => t.windowId)).size;
   statsEl.innerHTML =
-    `<span><span class="stat-value">${tabCount}</span> tabs</span>` +
-    `<span><span class="stat-value">${groupCount}</span> groups</span>` +
+    `<span><span class="stat-value">${visibleCount}</span>` +
+    `${visibleCount !== totalTabs ? ` / ${totalTabs}` : ''} tabs</span>` +
+    `<span><span class="stat-value">${groups.length}</span> groups</span>` +
     `<span><span class="stat-value">${wins}</span> windows</span>`;
 }
 
 // ===================================================================
-// Collapsed state persistence
+// Active group persistence
 // ===================================================================
 
-async function loadCollapsedState() {
+async function loadActiveGroup() {
   try {
-    const { collapsedGroupIds = [] } = await chrome.storage.local.get('collapsedGroupIds');
-    collapsedGroups = new Set(collapsedGroupIds);
+    const { activeGroup } = await chrome.storage.local.get('activeGroup');
+    if (activeGroup !== undefined) activeGroupId = activeGroup;
   } catch {}
 }
 
-async function saveCollapsedState() {
-  await chrome.storage.local.set({ collapsedGroupIds: [...collapsedGroups] });
+async function saveActiveGroup() {
+  await chrome.storage.local.set({ activeGroup: activeGroupId });
 }
 
 // ===================================================================
-// Live updates — keep display in sync
+// Live updates
 // ===================================================================
 
 chrome.tabs.onCreated.addListener(() => loadData());
 chrome.tabs.onRemoved.addListener((id) => {
   tabs = tabs.filter(t => t.id !== id);
-  render();
+  renderGroupTabs();
+  renderTiles();
 });
 chrome.tabs.onUpdated.addListener((id, changes) => {
   const t = tabs.find(t => t.id === id);
-  if (t) { Object.assign(t, changes); render(); }
+  if (t) { Object.assign(t, changes); renderTiles(); }
 });
 chrome.tabs.onMoved.addListener(() => loadData());
 chrome.tabs.onAttached.addListener(() => loadData());
