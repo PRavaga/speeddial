@@ -123,8 +123,22 @@ async function checkRateLimit(sub, env) {
 }
 
 // ===================================================================
-// Auth — verify Google ID token
+// Auth — verify Google ID token locally via JWKS
 // ===================================================================
+
+let cachedKeys = null;
+let cachedKeysAt = 0;
+const JWKS_TTL = 3600000; // 1 hour
+
+async function getGoogleKeys() {
+  if (cachedKeys && (Date.now() - cachedKeysAt) < JWKS_TTL) return cachedKeys;
+  const resp = await fetch('https://www.googleapis.com/oauth2/v3/certs');
+  if (!resp.ok) throw new Error('Failed to fetch Google JWKS');
+  const jwks = await resp.json();
+  cachedKeys = jwks.keys;
+  cachedKeysAt = Date.now();
+  return cachedKeys;
+}
 
 async function verifyAuth(request, env) {
   const header = request.headers.get('Authorization');
@@ -133,21 +147,49 @@ async function verifyAuth(request, env) {
   const idToken = header.slice(7);
 
   try {
-    const resp = await fetch('https://oauth2.googleapis.com/tokeninfo', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `id_token=${encodeURIComponent(idToken)}`
-    });
-    if (!resp.ok) return null;
+    // Decode header to find the key ID
+    const [headerB64, payloadB64] = idToken.split('.');
+    if (!headerB64 || !payloadB64) return null;
 
-    const info = await resp.json();
-    if (info.aud !== env.GOOGLE_CLIENT_ID) return null;
-    if (info.exp && Number(info.exp) * 1000 < Date.now()) return null;
+    const jwtHeader = JSON.parse(b64UrlDecode(headerB64));
+    const payload = JSON.parse(b64UrlDecode(payloadB64));
 
-    return { sub: info.sub, email: info.email };
+    // Check claims before verifying signature (fast fail)
+    if (payload.aud !== env.GOOGLE_CLIENT_ID) return null;
+    if (!payload.iss?.includes('accounts.google.com')) return null;
+    if (payload.exp && payload.exp * 1000 < Date.now()) return null;
+
+    // Verify RS256 signature
+    const keys = await getGoogleKeys();
+    const key = keys.find(k => k.kid === jwtHeader.kid);
+    if (!key) return null;
+
+    const cryptoKey = await crypto.subtle.importKey(
+      'jwk', key, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']
+    );
+
+    const sigInput = new TextEncoder().encode(idToken.split('.').slice(0, 2).join('.'));
+    const signature = b64UrlToBuffer(idToken.split('.')[2]);
+
+    const valid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', cryptoKey, signature, sigInput);
+    if (!valid) return null;
+
+    return { sub: payload.sub, email: payload.email };
   } catch {
     return null;
   }
+}
+
+function b64UrlDecode(str) {
+  const padded = str.replace(/-/g, '+').replace(/_/g, '/');
+  return atob(padded);
+}
+
+function b64UrlToBuffer(str) {
+  const binary = b64UrlDecode(str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
 }
 
 // ===================================================================

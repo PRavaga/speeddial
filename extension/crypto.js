@@ -2,7 +2,7 @@
 // Speed Dial — Client-side Encryption (AES-256-GCM)
 // ===================================================================
 
-const PBKDF2_ITERATIONS = 100000;
+const PBKDF2_ITERATIONS = 600000;
 
 export async function deriveKey(userSub, passphrase = 'speeddial-v1') {
   const enc = new TextEncoder();
@@ -34,6 +34,7 @@ export async function decrypt(encrypted, key) {
   const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
   return JSON.parse(new TextDecoder().decode(plaintext));
 }
+
 
 function bufToBase64(buf) {
   let binary = '';
