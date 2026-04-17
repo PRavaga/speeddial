@@ -4,17 +4,13 @@
 
 const STORAGE_KEY = 'syncAuth';
 
-// These are read from chrome.storage.local 'config' on init.
-let CLIENT_ID = '';
-let CLIENT_SECRET = '';
+let CLIENT_ID = '1017927287759-tbs9i5pv4voe8oe25bb93vdokte7sqa9.apps.googleusercontent.com';
+let CLIENT_SECRET = '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';
 let REDIRECT_URL = '';
 
 export async function initAuth() {
   try {
     REDIRECT_URL = chrome.identity.getRedirectURL();
-    const { config } = await chrome.storage.local.get('config');
-    if (config?.googleClientId) CLIENT_ID = config.googleClientId;
-    if (config?.googleClientSecret) CLIENT_SECRET = config.googleClientSecret;
   } catch {}
 }
 

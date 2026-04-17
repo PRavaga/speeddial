@@ -5,9 +5,10 @@
 import { getValidIdToken, getUser, isSignedIn } from './auth.js';
 import { deriveKey, encrypt, decrypt } from './crypto.js';
 
-let SYNC_API = '';
+let SYNC_API = 'https://speeddial-sync.apps-0fb.workers.dev';
 
 export async function initSync() {
+  // API URL hardcoded above; override via storage if needed
   try {
     const { config } = await chrome.storage.local.get('config');
     if (config?.syncApiUrl) SYNC_API = config.syncApiUrl;
