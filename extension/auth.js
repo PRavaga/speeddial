@@ -14,14 +14,6 @@ export async function initAuth() {
   } catch {}
 }
 
-export function setClientId(id) {
-  CLIENT_ID = id;
-  chrome.storage.local.set({ config: { googleClientId: id } });
-}
-
-export function getClientId() {
-  return CLIENT_ID;
-}
 
 // ---- Sign In (PKCE) ----
 
@@ -65,9 +57,6 @@ export async function signIn() {
 
   if (!tokenResp.ok) {
     const err = await tokenResp.json().catch(() => ({}));
-    console.error('Token exchange failed:', err);
-    console.error('Redirect URI used:', REDIRECT_URL);
-    console.error('Client ID used:', CLIENT_ID);
     throw new Error(err.error_description || err.error || `Token exchange failed (${tokenResp.status})`);
   }
 

@@ -5,21 +5,10 @@
 import { getValidIdToken, getUser, isSignedIn } from './auth.js';
 import { deriveKey, encrypt, decrypt } from './crypto.js';
 
-let SYNC_API = 'https://speeddial-sync.apps-0fb.workers.dev';
+const SYNC_API = 'https://speeddial-sync.apps-0fb.workers.dev';
 
 export async function initSync() {
-  // API URL hardcoded above; override via storage if needed
-  try {
-    const { config } = await chrome.storage.local.get('config');
-    if (config?.syncApiUrl) SYNC_API = config.syncApiUrl;
-  } catch {}
-}
-
-export function setSyncApiUrl(url) {
-  SYNC_API = url.replace(/\/$/, '');
-  chrome.storage.local.get('config').then(({ config = {} }) => {
-    chrome.storage.local.set({ config: { ...config, syncApiUrl: SYNC_API } });
-  });
+  // No-op — API URL is hardcoded. Kept for interface compatibility.
 }
 
 // ===================================================================
@@ -33,16 +22,17 @@ export async function syncNow() {
     const remote = await pullFromServer();
     const local = await collectLocalData();
 
+    const remoteVersion = remote?.version || 0;
     let merged;
     if (remote) {
       merged = mergeDocs(local, remote);
-      merged.version = Math.max(local.version || 0, remote.version || 0) + 1;
+      merged.version = Math.max(local.version || 0, remoteVersion) + 1;
     } else {
       merged = { ...local, version: (local.version || 0) + 1 };
     }
 
     merged.lastModified = Date.now();
-    await pushToServer(merged);
+    await pushToServer(merged, remoteVersion);
     await applyRemoteData(merged);
     await chrome.storage.local.set({ lastSync: Date.now(), syncVersion: merged.version });
 
@@ -57,7 +47,7 @@ export async function syncNow() {
 // Push / Pull
 // ===================================================================
 
-async function pushToServer(doc) {
+async function pushToServer(doc, expectedVersion = 0) {
   const user = await getUser();
   const idToken = await getValidIdToken();
   if (!user || !idToken) throw new Error('Not authenticated');
@@ -71,7 +61,7 @@ async function pushToServer(doc) {
       'Authorization': `Bearer ${idToken}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ data: encrypted, version: doc.version })
+    body: JSON.stringify({ data: encrypted, version: doc.version, expectedVersion })
   });
 
   if (!resp.ok) {

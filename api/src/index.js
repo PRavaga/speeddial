@@ -2,6 +2,9 @@
 // Speed Dial — Sync API (Cloudflare Worker)
 // ===================================================================
 
+const MAX_BODY_SIZE = 1024 * 1024; // 1MB
+const RATE_LIMIT_PER_MIN = 60;
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -22,6 +25,12 @@ export default {
       const user = await verifyAuth(request, env);
       if (!user) {
         return corsResponse(request, env, json({ error: 'Unauthorized' }, 401));
+      }
+
+      // Rate limiting
+      const rateLimited = await checkRateLimit(user.sub, env);
+      if (rateLimited) {
+        return corsResponse(request, env, json({ error: 'Too many requests' }, 429));
       }
 
       try {
@@ -53,6 +62,12 @@ async function handleSyncGet(user, env) {
 }
 
 async function handleSyncPut(user, request, env) {
+  // Payload size check
+  const contentLength = parseInt(request.headers.get('Content-Length') || '0');
+  if (contentLength > MAX_BODY_SIZE) {
+    return json({ error: 'Payload too large' }, 413);
+  }
+
   const body = await request.json();
   if (!body.data || body.version === undefined) {
     return json({ error: 'Missing data or version' }, 400);
@@ -60,7 +75,7 @@ async function handleSyncPut(user, request, env) {
 
   const stored = await env.SYNC_KV.get(`user:${user.sub}:data`, 'json');
 
-  // Optimistic concurrency: reject if server version is ahead
+  // Optimistic concurrency: reject if server version doesn't match expected
   if (stored && body.expectedVersion !== undefined && stored.version !== body.expectedVersion) {
     return json({ error: 'Version conflict', serverVersion: stored.version }, 409);
   }
@@ -73,7 +88,6 @@ async function handleSyncPut(user, request, env) {
 
   await env.SYNC_KV.put(`user:${user.sub}:data`, JSON.stringify(record));
 
-  // Update metadata
   await env.SYNC_KV.put(`user:${user.sub}:meta`, JSON.stringify({
     email: user.email,
     lastSync: Date.now(),
@@ -96,6 +110,19 @@ async function handleSyncInfo(user, env) {
 }
 
 // ===================================================================
+// Rate limiting (KV-based, per user, per minute)
+// ===================================================================
+
+async function checkRateLimit(sub, env) {
+  const key = `rate:${sub}:${Math.floor(Date.now() / 60000)}`;
+  const count = parseInt(await env.SYNC_KV.get(key) || '0');
+  if (count >= RATE_LIMIT_PER_MIN) return true;
+  // Fire-and-forget — don't await, minor race is acceptable
+  env.SYNC_KV.put(key, String(count + 1), { expirationTtl: 120 });
+  return false;
+}
+
+// ===================================================================
 // Auth — verify Google ID token
 // ===================================================================
 
@@ -106,16 +133,15 @@ async function verifyAuth(request, env) {
   const idToken = header.slice(7);
 
   try {
-    // Simple verification via Google's tokeninfo endpoint
-    const resp = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`);
+    const resp = await fetch('https://oauth2.googleapis.com/tokeninfo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `id_token=${encodeURIComponent(idToken)}`
+    });
     if (!resp.ok) return null;
 
     const info = await resp.json();
-
-    // Verify audience matches our client ID
     if (info.aud !== env.GOOGLE_CLIENT_ID) return null;
-
-    // Check expiry
     if (info.exp && Number(info.exp) * 1000 < Date.now()) return null;
 
     return { sub: info.sub, email: info.email };
@@ -144,8 +170,7 @@ function corsResponse(request, env, response) {
   headers.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
   headers.set('Access-Control-Max-Age', '86400');
 
-  // Allow if origin matches, or allow all for dev
-  if (allowed.includes(origin) || allowed.includes('*')) {
+  if (allowed.includes(origin)) {
     headers.set('Access-Control-Allow-Origin', origin);
   }
 
