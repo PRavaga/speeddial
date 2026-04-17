@@ -330,16 +330,24 @@ function buildTile(tab, index) {
   // Favicon error fallbacks (can't use inline onerror — CSP)
   const faviconEl = tile.querySelector('.tile-favicon');
   if (faviconEl) {
-    faviconEl.addEventListener('error', () => {
+    const swapToLetter = () => {
       const letterDiv = document.createElement('div');
       letterDiv.className = 'tile-letter';
       letterDiv.textContent = faviconEl.dataset.letter || '?';
       faviconEl.replaceWith(letterDiv);
+    };
+    faviconEl.addEventListener('error', swapToLetter, { once: true });
+    // Also catch broken images that load but render as 0x0 or empty
+    faviconEl.addEventListener('load', () => {
+      if (faviconEl.naturalWidth === 0) swapToLetter();
     }, { once: true });
   }
   const badgeEl = tile.querySelector('.tile-favicon-badge');
   if (badgeEl) {
     badgeEl.addEventListener('error', () => { badgeEl.style.display = 'none'; }, { once: true });
+    badgeEl.addEventListener('load', () => {
+      if (badgeEl.naturalWidth === 0) badgeEl.style.display = 'none';
+    }, { once: true });
   }
 
   // Click → switch to tab

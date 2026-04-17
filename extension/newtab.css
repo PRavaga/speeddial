@@ -459,18 +459,22 @@ body {
 
 /* Domain initial letter fallback */
 .tile-letter {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--tile-color, var(--c-grey)) 15%, var(--bg-card));
-  border: 1px solid color-mix(in srgb, var(--tile-color, var(--c-grey)) 12%, transparent);
+  font-family: var(--font-ui);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: color-mix(in srgb, var(--tile-color, var(--c-grey)) 90%, white);
+  background: color-mix(in srgb, var(--tile-color, var(--c-grey)) 12%, var(--bg-card));
+  border: 1px solid color-mix(in srgb, var(--tile-color, var(--c-grey)) 10%, transparent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--tile-color, var(--c-grey)) 8%, transparent);
   position: relative;
+  text-transform: uppercase;
   z-index: 1;
 }
 
