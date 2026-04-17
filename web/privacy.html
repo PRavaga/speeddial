@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — Speed Dial</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav>
+    <div class="container">
+      <a href="/" class="nav-brand">
+        <svg class="nav-logo" viewBox="0 0 32 32" fill="none"><rect x="2" y="2" width="12" height="12" rx="3" fill="#5b9fff"/><rect x="18" y="2" width="12" height="12" rx="3" fill="#5b9fff" opacity=".4"/><rect x="2" y="18" width="12" height="12" rx="3" fill="#5b9fff" opacity=".4"/><rect x="18" y="18" width="12" height="12" rx="3" fill="#5b9fff" opacity=".25"/></svg>
+        <span class="nav-name">Speed Dial</span>
+      </a>
+      <ul class="nav-links">
+        <li><a href="/">Home</a></li>
+        <li><a href="https://studio.ravaga.com">Ravaga Studio</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="legal-page">
+      <h1>Privacy Policy</h1>
+      <p class="last-updated">Last updated: April 17, 2026</p>
+
+      <p>Speed Dial is a browser extension developed by <a href="https://studio.ravaga.com">Ravaga Studio</a>. This policy explains what data the extension handles and how.</p>
+
+      <h2>What data we access</h2>
+      <p>Speed Dial accesses the following browser data to provide its core functionality:</p>
+      <ul>
+        <li><strong>Open tabs</strong> — titles, URLs, and favicons of your open tabs, to display them as tiles on the new tab page.</li>
+        <li><strong>Tab groups</strong> — group names and colors, to organize tiles by group.</li>
+        <li><strong>Tab screenshots</strong> — captured when you switch between tabs, stored locally as compressed thumbnails.</li>
+      </ul>
+      <p>This data is read from browser APIs and never leaves your device unless you enable cloud sync.</p>
+
+      <h2>Local storage</h2>
+      <p>The extension stores the following data locally in your browser:</p>
+      <ul>
+        <li>Tab session backups (up to 100 snapshots)</li>
+        <li>Screenshot thumbnails (up to 500, auto-cleaned after 7 days)</li>
+        <li>Your theme preference (dark/light)</li>
+        <li>UI state (which group tab is selected, collapsed groups)</li>
+      </ul>
+      <p>All local data is stored via the <code>chrome.storage.local</code> API and is accessible only to this extension. Uninstalling the extension removes all local data.</p>
+
+      <h2>Cloud sync (optional)</h2>
+      <p>If you sign in with Google, the extension syncs your session backups and settings to a cloud server. Here's how that works:</p>
+      <ul>
+        <li><strong>Authentication</strong> — We use Google OAuth 2.0 to verify your identity. We receive your email, name, and profile picture. We do not receive or store your Google password.</li>
+        <li><strong>Encryption</strong> — All synced data is encrypted client-side using AES-256-GCM before leaving your browser. The encryption key is derived from your Google account ID. The server stores only encrypted blobs and cannot read your data.</li>
+        <li><strong>Server</strong> — Synced data is stored on Cloudflare Workers KV, a globally distributed key-value store. Each user's data is keyed to their Google account ID.</li>
+        <li><strong>What syncs</strong> — Session backups and theme preference. Screenshots, live tab state, and UI preferences do not sync.</li>
+        <li><strong>Deletion</strong> — You can delete all synced data by signing out from the extension settings. You can also request deletion by contacting us.</li>
+      </ul>
+      <p>Cloud sync is entirely optional. The extension works fully offline without signing in.</p>
+
+      <h2>What we don't do</h2>
+      <ul>
+        <li>We do not collect analytics or telemetry.</li>
+        <li>We do not track your browsing history beyond what's shown in the extension.</li>
+        <li>We do not sell, share, or transmit your data to third parties.</li>
+        <li>We do not serve ads.</li>
+        <li>We do not use your data for AI training or profiling.</li>
+      </ul>
+
+      <h2>Permissions explained</h2>
+      <ul>
+        <li><strong>tabs</strong> — Read tab titles, URLs, and favicons to display tiles.</li>
+        <li><strong>tabGroups</strong> — Read and update tab group names and colors.</li>
+        <li><strong>storage</strong> — Store backups, settings, and thumbnails locally.</li>
+        <li><strong>alarms</strong> — Schedule automatic backups and sync.</li>
+        <li><strong>favicon</strong> — Fetch favicons for tabs that haven't loaded yet.</li>
+        <li><strong>identity</strong> — Google sign-in for cloud sync.</li>
+        <li><strong>host_permissions (&lt;all_urls&gt;)</strong> — Required for capturing tab screenshots via <code>captureVisibleTab</code>. This permission does not allow reading page content.</li>
+      </ul>
+
+      <h2>Open source</h2>
+      <p>Speed Dial is open source. You can review the complete source code at <a href="https://github.com/PRavaga/speeddial">github.com/PRavaga/speeddial</a>.</p>
+
+      <h2>Contact</h2>
+      <p>For questions about this policy or data requests, contact us at <a href="https://studio.ravaga.com">studio.ravaga.com</a>.</p>
+
+      <h2>Legal entity</h2>
+      <p>Speed Dial is published by Ravaga Studio. For our full terms and legal information, see <a href="https://studio.ravaga.com">studio.ravaga.com</a>.</p>
+    </div>
+  </div>
+
+  <footer>
+    <div class="container">
+      <div class="footer-left">
+        <a href="/" class="footer-brand">
+          <svg width="20" height="20" viewBox="0 0 32 32" fill="none"><rect x="2" y="2" width="12" height="12" rx="3" fill="#5b9fff"/><rect x="18" y="2" width="12" height="12" rx="3" fill="#5b9fff" opacity=".4"/><rect x="2" y="18" width="12" height="12" rx="3" fill="#5b9fff" opacity=".4"/><rect x="18" y="18" width="12" height="12" rx="3" fill="#5b9fff" opacity=".25"/></svg>
+          Speed Dial
+        </a>
+        <ul class="footer-links">
+          <li><a href="/">Home</a></li>
+          <li><a href="https://github.com/PRavaga/speeddial">GitHub</a></li>
+          <li><a href="https://studio.ravaga.com">Ravaga Studio</a></li>
+        </ul>
+      </div>
+      <span class="footer-legal">&copy; 2026 <a href="https://studio.ravaga.com" style="color:inherit">Ravaga Studio</a></span>
+    </div>
+  </footer>
+
+  <div class="grain" aria-hidden="true"></div>
+
+</body>
+</html>

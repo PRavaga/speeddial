@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Speed Dial — Tab Command Center for Chrome & Edge</title>
+  <meta name="description" content="A new tab page that works with your open tabs — see them all as visual tiles, organized by groups, backed up automatically, and synced across browsers.">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav>
+    <div class="container">
+      <a href="/" class="nav-brand">
+        <svg class="nav-logo" viewBox="0 0 32 32" fill="none"><rect x="2" y="2" width="12" height="12" rx="3" fill="#5b9fff"/><rect x="18" y="2" width="12" height="12" rx="3" fill="#5b9fff" opacity=".4"/><rect x="2" y="18" width="12" height="12" rx="3" fill="#5b9fff" opacity=".4"/><rect x="18" y="18" width="12" height="12" rx="3" fill="#5b9fff" opacity=".25"/></svg>
+        <span class="nav-name">Speed Dial</span>
+      </a>
+      <ul class="nav-links">
+        <li><a href="privacy.html">Privacy</a></li>
+        <li><a href="#install" class="nav-cta">Install</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container">
+      <h1>Your tabs, always<br><span class="accent">within reach</span></h1>
+      <p class="hero-sub">Speed Dial turns your new tab page into a live overview of all your open tabs. Think of it as your tab bar, but laid out as a visual grid with real page screenshots. Tabs stay organized by their groups, and there's search if you need to find something fast. It backs everything up automatically, so if you close a window by accident you can just restore it. You can also sign in with Google to keep things in sync between Chrome and Edge, all encrypted before it leaves your browser.</p>
+      <div class="hero-actions" id="install">
+        <a href="#" class="btn btn-primary">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C8.21 0 4.831 1.757 2.632 4.501l3.953 6.848A5.454 5.454 0 0 1 12 6.545h10.691A12 12 0 0 0 12 0zM1.931 5.47A11.943 11.943 0 0 0 0 12c0 6.012 4.42 10.991 10.189 11.864l3.953-6.847a5.45 5.45 0 0 1-6.865-2.29zm13.342 2.166-3.953 6.848a5.454 5.454 0 0 0 6.865 2.29l3.953-6.849A5.45 5.45 0 0 0 18.545 6.545H15.273zM12 8.009a3.991 3.991 0 1 0 0 7.982 3.991 3.991 0 0 0 0-7.982z"/></svg>
+          Chrome Web Store
+        </a>
+        <a href="#" class="btn btn-secondary">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.86 17.86q.14 0 .25.12.1.13.1.25t-.11.33L18 22.66q-.14.14-.33.14t-.33-.14l-7.72-7.72h-3.5l4.98-4.98L7.92 6.8H2.14q-.14 0-.25-.11Q1.78 6.55 1.78 6.42V2.14q0-.14.11-.25.14-.11.25-.11h4.28q.14 0 .25.11.11.11.11.25V6.8l3.18 3.18 4.97-4.97h3.49L14.38 9.06l7.48 8.8z"/></svg>
+          Edge Add-ons
+        </a>
+      </div>
+
+      <!-- Split screenshot: dark/light -->
+      <div class="hero-screenshot">
+        <div class="screenshot-split">
+          <img src="screenshot-dark.png" alt="Speed Dial dark theme" class="screenshot-half">
+          <img src="screenshot-light.png" alt="Speed Dial light theme" class="screenshot-half">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features (simple list) -->
+  <section class="features" id="features">
+    <div class="container">
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="7" height="7" rx="1.5"/><rect x="11" y="2" width="7" height="7" rx="1.5"/><rect x="2" y="11" width="7" height="7" rx="1.5"/><rect x="11" y="11" width="7" height="7" rx="1.5"/></svg>
+          </div>
+          <h3>Tab groups as navigation</h3>
+          <p>Your browser's groups become clickable tabs at the top. Each has its Chrome color. Filter by group or see everything at once.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="16" height="12" rx="2"/><path d="M6 18h8M10 14v4"/></svg>
+          </div>
+          <h3>Page screenshots</h3>
+          <p>Tabs get a thumbnail captured when you visit them. Your speed dial fills with real previews instead of generic icons.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 6.5V15a1.5 1.5 0 01-1.5 1.5h-7A1.5 1.5 0 015 15V5a1.5 1.5 0 011.5-1.5h5L15 6.5z"/><path d="M7 10h6M7 13h4"/></svg>
+          </div>
+          <h3>Automatic backup</h3>
+          <p>Your tab layout is saved every 5 minutes, plus when a window closes or a group is removed. Restore any session in one click.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 10a7 7 0 0112.9-3.8M17 10a7 7 0 01-12.9 3.8"/><path d="M16 4v3h-3M4 16v-3h3"/></svg>
+          </div>
+          <h3>Encrypted sync</h3>
+          <p>Sign in with Google. Backups sync across Chrome and Edge, encrypted end-to-end with AES-256-GCM. The server stores only ciphertext.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M13 13l4 4"/></svg>
+          </div>
+          <h3>Instant search</h3>
+          <p>Press <kbd>/</kbd> to search. Matches title and URL in real time. Arrow keys to switch groups. Escape to clear.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="4"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2"/></svg>
+          </div>
+          <h3>Dark & light themes</h3>
+          <p>Toggle between a deep dark theme and clean light mode. Your choice syncs across browsers.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-left">
+        <a href="/" class="footer-brand">
+          <svg width="20" height="20" viewBox="0 0 32 32" fill="none"><rect x="2" y="2" width="12" height="12" rx="3" fill="#5b9fff"/><rect x="18" y="2" width="12" height="12" rx="3" fill="#5b9fff" opacity=".4"/><rect x="2" y="18" width="12" height="12" rx="3" fill="#5b9fff" opacity=".4"/><rect x="18" y="18" width="12" height="12" rx="3" fill="#5b9fff" opacity=".25"/></svg>
+          Speed Dial
+        </a>
+        <ul class="footer-links">
+          <li><a href="privacy.html">Privacy</a></li>
+          <li><a href="https://github.com/PRavaga/speeddial">GitHub</a></li>
+          <li><a href="https://studio.ravaga.com">Ravaga Studio</a></li>
+        </ul>
+      </div>
+      <span class="footer-legal">&copy; 2026 <a href="https://studio.ravaga.com" style="color:inherit">Ravaga Studio</a></span>
+    </div>
+  </footer>
+
+  <div class="grain" aria-hidden="true"></div>
+
+</body>
+</html>
