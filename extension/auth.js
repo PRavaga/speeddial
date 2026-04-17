@@ -4,9 +4,9 @@
 
 const STORAGE_KEY = 'syncAuth';
 
-// These are read from chrome.storage.local 'config' on init,
-// or set via setupGoogleAuth().
+// These are read from chrome.storage.local 'config' on init.
 let CLIENT_ID = '';
+let CLIENT_SECRET = '';
 let REDIRECT_URL = '';
 
 export async function initAuth() {
@@ -14,6 +14,7 @@ export async function initAuth() {
     REDIRECT_URL = chrome.identity.getRedirectURL();
     const { config } = await chrome.storage.local.get('config');
     if (config?.googleClientId) CLIENT_ID = config.googleClientId;
+    if (config?.googleClientSecret) CLIENT_SECRET = config.googleClientSecret;
   } catch {}
 }
 
@@ -58,6 +59,7 @@ export async function signIn() {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
       code,
       code_verifier: verifier,
       grant_type: 'authorization_code',
@@ -130,6 +132,7 @@ async function refreshTokens(auth) {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
       refresh_token: auth.refreshToken,
       grant_type: 'refresh_token'
     })

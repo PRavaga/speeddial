@@ -1,13 +1,12 @@
 name = "speeddial-sync"
 main = "src/index.js"
 compatibility_date = "2024-12-01"
+account_id = "0fb46808d919893df3ef67c42d8bba36"
 
 [[kv_namespaces]]
 binding = "SYNC_KV"
-id = ""          # Run: wrangler kv namespace create SYNC_KV
-preview_id = ""  # Run: wrangler kv namespace create SYNC_KV --preview
+id = "4fc3a16c6f7d4de79e33fcdc43f66960"
 
 [vars]
-GOOGLE_CLIENT_ID = ""  # Your Google OAuth Client ID
-# Comma-separated allowed origins
-ALLOWED_ORIGINS = ""   # e.g. "chrome-extension://abcdef...,https://speeddial.yourdomain.com"
+GOOGLE_CLIENT_ID = "1017927287759-tbs9i5pv4voe8oe25bb93vdokte7sqa9.apps.googleusercontent.com"
+ALLOWED_ORIGINS = "chrome-extension://hpmdmgbcjcekhmfalaodhgeemilbepcj"
