@@ -8,5 +8,5 @@ binding = "SYNC_KV"
 id = "4fc3a16c6f7d4de79e33fcdc43f66960"
 
 [vars]
-GOOGLE_CLIENT_ID = "1017927287759-tbs9i5pv4voe8oe25bb93vdokte7sqa9.apps.googleusercontent.com"
+GOOGLE_CLIENT_ID = "1017927287759-mgaib9am82c58fl9e6u7m7ht10kj1bp9.apps.googleusercontent.com"
 ALLOWED_ORIGINS = "chrome-extension://hpmdmgbcjcekhmfalaodhgeemilbepcj"

@@ -4,8 +4,8 @@
 
 const STORAGE_KEY = 'syncAuth';
 
-let CLIENT_ID = '1017927287759-tbs9i5pv4voe8oe25bb93vdokte7sqa9.apps.googleusercontent.com';
-let CLIENT_SECRET = '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';
+let CLIENT_ID = '1017927287759-mgaib9am82c58fl9e6u7m7ht10kj1bp9.apps.googleusercontent.com';
+let CLIENT_SECRET = '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';
 let REDIRECT_URL = '';
 
 export async function initAuth() {
