@@ -22,6 +22,12 @@
       </a>
       <ul class="nav-links">
         <li><a href="privacy.html">Privacy</a></li>
+        <li>
+          <button class="theme-btn" id="theme-btn" title="Toggle theme">
+            <svg class="icon-sun" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="4"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.93 4.93l1.41 1.41M13.66 13.66l1.41 1.41M4.93 15.07l1.41-1.41M13.66 6.34l1.41-1.41"/></svg>
+            <svg class="icon-moon" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17.3 14.3A8 8 0 015.7 2.7 8 8 0 1017.3 14.3z"/></svg>
+          </button>
+        </li>
         <li><a href="#install" class="nav-cta">Install</a></li>
       </ul>
     </div>
@@ -43,12 +49,8 @@
         </a>
       </div>
 
-      <!-- Split screenshot: dark/light -->
       <div class="hero-screenshot">
-        <div class="screenshot-split">
-          <img src="screenshot-dark.png" alt="Speed Dial dark theme" class="screenshot-half">
-          <img src="screenshot-light.png" alt="Speed Dial light theme" class="screenshot-half">
-        </div>
+        <img src="screenshot-dark.png" alt="Speed Dial" class="screenshot-img" id="hero-screenshot">
       </div>
     </div>
   </section>
@@ -127,6 +129,33 @@
   </footer>
 
   <div class="grain" aria-hidden="true"></div>
+
+  <script>
+    const html = document.documentElement;
+    const btn = document.getElementById('theme-btn');
+    const img = document.getElementById('hero-screenshot');
+
+    function applyTheme(t) {
+      html.setAttribute('data-theme', t);
+      img.src = t === 'light' ? 'screenshot-light.png' : 'screenshot-dark.png';
+      localStorage.setItem('theme', t);
+    }
+
+    // Init: check saved preference, then system preference
+    const saved = localStorage.getItem('theme');
+    const system = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    applyTheme(saved || system);
+
+    // Listen for system theme changes
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', e => {
+      if (!localStorage.getItem('theme')) applyTheme(e.matches ? 'light' : 'dark');
+    });
+
+    // Toggle button
+    btn.addEventListener('click', () => {
+      applyTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    });
+  </script>
 
 </body>
 </html>

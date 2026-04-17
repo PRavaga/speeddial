@@ -142,6 +142,29 @@ nav .container {
   opacity: 1;
 }
 
+/* Theme toggle */
+.theme-btn {
+  background: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 5px 7px;
+  color: var(--text-2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: all 0.15s;
+}
+
+.theme-btn:hover {
+  color: var(--text-1);
+  border-color: var(--border-medium);
+}
+
+/* Show sun in dark mode, moon in light mode */
+.icon-moon { display: none; }
+[data-theme="light"] .icon-sun { display: none; }
+[data-theme="light"] .icon-moon { display: block; }
+
 .nav-cta {
   display: inline-flex;
   align-items: center;
@@ -293,28 +316,16 @@ nav .container {
   animation: fadeUp 0.8s var(--ease) 0.4s both;
 }
 
-.screenshot-split {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  max-width: 1060px;
-  margin: 0 auto;
-}
-
-.screenshot-half {
+.screenshot-img {
   width: 100%;
-  border-radius: 14px;
+  max-width: 1060px;
+  border-radius: 16px;
   border: 1px solid var(--border-subtle);
-  box-shadow:
-    0 24px 60px rgba(0, 0, 0, 0.4),
-    0 0 0 1px var(--border-faint);
-}
-
-.screenshot-half:first-child {
   box-shadow:
     0 24px 60px rgba(0, 0, 0, 0.4),
     0 0 0 1px var(--border-faint),
     0 0 40px var(--blue-glow);
+  transition: opacity 0.3s;
 }
 
 .hero-screenshot::after {
@@ -326,12 +337,6 @@ nav .container {
   height: 80px;
   background: radial-gradient(ellipse, rgba(91, 159, 255, 0.06), transparent);
   pointer-events: none;
-}
-
-@media (max-width: 768px) {
-  .screenshot-split {
-    grid-template-columns: 1fr;
-  }
 }
 
 @keyframes fadeUp {
@@ -662,6 +667,54 @@ footer .container {
 }
 
 .legal-page li { margin-bottom: 6px; }
+
+/* ================================================================
+   Light theme
+   ================================================================ */
+
+[data-theme="light"] {
+  --void: #f2f3f6;
+  --base: #f7f8fa;
+  --surface: #ffffff;
+  --card: #f9fafb;
+  --card-hover: #f0f1f5;
+  --elevated: #e8eaef;
+
+  --border-faint: rgba(0, 0, 0, 0.04);
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-medium: rgba(0, 0, 0, 0.13);
+
+  --text-1: #1a1c24;
+  --text-2: #5c5f72;
+  --text-3: #8b8ea0;
+  --text-4: #c0c2ce;
+
+  --blue: #3a7fe6;
+  --blue-dim: rgba(58, 127, 230, 0.06);
+  --blue-glow: rgba(58, 127, 230, 0.08);
+}
+
+[data-theme="light"] body {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -5%, rgba(58, 127, 230, 0.03) 0%, transparent 70%),
+    var(--void);
+}
+
+[data-theme="light"] nav {
+  background: rgba(242, 243, 246, 0.8);
+}
+
+[data-theme="light"] .grain { opacity: 0.01; }
+
+[data-theme="light"] .screenshot-img {
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.08),
+    0 0 0 1px var(--border-subtle);
+}
+
+[data-theme="light"] .feature-card:hover {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+}
 
 /* ================================================================
    Scrollbar
