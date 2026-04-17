@@ -24,15 +24,6 @@
       </div>
       <div class="topbar-right">
         <div class="stats" id="stats"></div>
-        <div class="backup-indicator">
-          <button class="backup-btn" id="backup-btn" title="Save snapshot (Ctrl+Shift+B)">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M13 5.5V13a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1h6.5L13 5.5z" stroke="currentColor" stroke-width="1.2"/>
-              <path d="M5 8h6M5 10.5h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-            </svg>
-          </button>
-          <span class="backup-time" id="backup-time"></span>
-        </div>
         <div class="settings-wrap">
           <button class="settings-btn" id="settings-btn" title="Settings">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -107,13 +98,25 @@
     </main>
 
     <section class="sessions-panel">
-      <button class="sessions-toggle" id="sessions-toggle">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path d="M2 4h10M2 7h10M2 10h10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-        </svg>
-        Saved Sessions
-        <span class="sessions-count" id="sessions-count">0</span>
-      </button>
+      <div class="sessions-bar">
+        <button class="sessions-toggle" id="sessions-toggle">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2 4h10M2 7h10M2 10h10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+          Saved Sessions
+          <span class="sessions-count" id="sessions-count">0</span>
+        </button>
+        <div class="sessions-bar-right">
+          <span class="backup-time" id="backup-time"></span>
+          <button class="backup-btn" id="backup-btn" title="Save snapshot (Ctrl+Shift+B)">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M13 5.5V13a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1h6.5L13 5.5z" stroke="currentColor" stroke-width="1.2"/>
+              <path d="M5 8h6M5 10.5h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+            Save now
+          </button>
+        </div>
+      </div>
       <div class="sessions-list" id="sessions-list"></div>
     </section>
   </div>

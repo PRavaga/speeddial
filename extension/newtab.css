@@ -226,28 +226,27 @@ body {
   font-weight: 500;
 }
 
-.backup-indicator {
+.backup-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.backup-btn {
-  background: var(--bg-surface);
+  gap: 6px;
+  background: none;
   border: 1px solid var(--border-subtle);
   border-radius: var(--r-sm);
-  padding: 6px 8px;
+  padding: 5px 10px;
   color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
+  transition: all 0.15s;
+  white-space: nowrap;
 }
 
 .backup-btn:hover {
   color: var(--text-secondary);
   border-color: var(--border-medium);
-  background: var(--bg-card);
+  background: var(--bg-surface);
 }
 
 .backup-btn.saving { color: var(--c-green); }
@@ -595,6 +594,18 @@ body {
 .sessions-panel {
   margin-top: 36px;
   flex-shrink: 0;
+}
+
+.sessions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sessions-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .sessions-toggle {
