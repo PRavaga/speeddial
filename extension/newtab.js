@@ -295,16 +295,15 @@ function buildTile(tab, index) {
   const urlHtml = searchQuery ? highlight(domain, searchQuery) : esc(domain);
 
   // Visual area: screenshot thumbnail if available, otherwise large favicon
+  // Note: no inline onerror — CSP blocks it in MV3. Handlers attached below.
   let visualHtml;
   if (thumb) {
     visualHtml = `
       <img class="tile-thumb" src="${escAttr(thumb)}" alt="" loading="lazy">
-      <img class="tile-favicon-badge" src="${escAttr(favicon)}" alt="" loading="lazy"
-           onerror="this.style.display='none'">`;
+      <img class="tile-favicon-badge" src="${escAttr(favicon)}" alt="" loading="lazy">`;
   } else {
     visualHtml = `
-      <img class="tile-favicon" src="${escAttr(favicon)}" alt="" loading="lazy"
-           onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'tile-letter',textContent:'${letter}'}))">`;
+      <img class="tile-favicon" src="${escAttr(favicon)}" alt="" loading="lazy" data-letter="${escAttr(letter)}">`;
   }
 
   tile.innerHTML = `
@@ -327,6 +326,21 @@ function buildTile(tab, index) {
       <div class="tile-title">${titleHtml}</div>
       <div class="tile-url">${urlHtml}</div>
     </div>`;
+
+  // Favicon error fallbacks (can't use inline onerror — CSP)
+  const faviconEl = tile.querySelector('.tile-favicon');
+  if (faviconEl) {
+    faviconEl.addEventListener('error', () => {
+      const letterDiv = document.createElement('div');
+      letterDiv.className = 'tile-letter';
+      letterDiv.textContent = faviconEl.dataset.letter || '?';
+      faviconEl.replaceWith(letterDiv);
+    }, { once: true });
+  }
+  const badgeEl = tile.querySelector('.tile-favicon-badge');
+  if (badgeEl) {
+    badgeEl.addEventListener('error', () => { badgeEl.style.display = 'none'; }, { once: true });
+  }
 
   // Click → switch to tab
   tile.addEventListener('click', (e) => {
