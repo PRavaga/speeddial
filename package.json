@@ -1,0 +1,12 @@
+{
+  "name": "speeddial",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "test": "npx tsx test/extension.test.ts"
+  },
+  "devDependencies": {
+    "playwright": "^1.59.1",
+    "tsx": "^4.21.0"
+  }
+}
