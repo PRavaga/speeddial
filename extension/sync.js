@@ -3,7 +3,7 @@
 // ===================================================================
 
 import { getValidIdToken, getUser, isSignedIn } from './auth.js';
-import { deriveKey, encrypt, decrypt } from './crypto.js';
+import { encrypt, decrypt } from './crypto.js';
 
 const SYNC_API = 'https://speeddial-sync.apps-0fb.workers.dev';
 
@@ -39,7 +39,7 @@ export async function syncNow() {
     return { ok: true, version: merged.version };
   } catch (e) {
     console.error('Sync failed:', e);
-    return { ok: false, reason: e.message };
+    return { ok: false, reason: e.message || e.name || 'unknown error' };
   }
 }
 
@@ -52,8 +52,7 @@ async function pushToServer(doc, expectedVersion = 0) {
   const idToken = await getValidIdToken();
   if (!user || !idToken) throw new Error('Not authenticated');
 
-  const key = await deriveKey(user.sub);
-  const encrypted = await encrypt(doc, key);
+  const encrypted = await encrypt(doc, user.sub);
 
   const resp = await fetch(`${SYNC_API}/api/sync`, {
     method: 'PUT',
@@ -85,8 +84,23 @@ async function pullFromServer() {
   const { data: encrypted } = await resp.json();
   if (!encrypted) return null;
 
-  const key = await deriveKey(user.sub);
-  return decrypt(encrypted, key);
+  try {
+    return await decrypt(encrypted, user.sub);
+  } catch (e) {
+    // OperationError = AES-GCM auth failure (wrong key). Most likely cause:
+    // blob was encrypted with older key-derivation params we no longer support,
+    // or the user wiped local state. Either way, the blob is unusable — wipe it
+    // so the next push reseeds from local instead of leaving sync permanently broken.
+    if (e.name === 'OperationError') {
+      console.warn('Sync blob undecryptable — wiping server and reseeding from local');
+      await fetch(`${SYNC_API}/api/sync`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${idToken}` }
+      }).catch(() => {});
+      return null;
+    }
+    throw e;
+  }
 }
 
 // ===================================================================
@@ -98,9 +112,19 @@ async function collectLocalData() {
   return {
     version: storage.syncVersion || 0,
     lastModified: Date.now(),
-    sessions: (storage.backups || []).slice(0, 100),
+    sessions: (storage.backups || []).slice(0, 100).map(stripSessionFat),
     settings: { theme: storage.theme || 'dark' },
     pinnedSites: storage.pinnedSites || []
+  };
+}
+
+// Drop favIconUrl (often long data: URLs) — we regenerate via chrome _favicon API from url.
+function stripSessionFat(session) {
+  const stripTab = t => ({ title: t.title, url: t.url, pinned: t.pinned });
+  return {
+    ...session,
+    groups: (session.groups || []).map(g => ({ ...g, tabs: (g.tabs || []).map(stripTab) })),
+    ungrouped: (session.ungrouped || []).map(stripTab)
   };
 }
 

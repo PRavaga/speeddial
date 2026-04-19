@@ -286,7 +286,7 @@ function buildTile(tab, index) {
   let domain = '';
   try { domain = new URL(tab.url || '').hostname.replace(/^www\./, ''); } catch {}
 
-  const favicon = tab.favIconUrl || faviconFor(tab.url);
+  const favicon = faviconFor(tab.url) || tab.favIconUrl;
   const letter = (domain[0] || '?').toUpperCase();
   const showBadge = activeGroupId === 'all' && group;
   const thumb = thumbnails[tab.url];
@@ -299,11 +299,11 @@ function buildTile(tab, index) {
   let visualHtml;
   if (thumb) {
     visualHtml = `
-      <img class="tile-thumb" src="${escAttr(thumb)}" alt="" loading="lazy">
-      <img class="tile-favicon-badge" src="${escAttr(favicon)}" alt="" loading="lazy">`;
+      <img class="tile-thumb" src="${escAttr(thumb)}" alt="">
+      <img class="tile-favicon-badge" src="${escAttr(favicon)}" alt="">`;
   } else {
     visualHtml = `
-      <img class="tile-favicon" src="${escAttr(favicon)}" alt="" loading="lazy" data-letter="${escAttr(letter)}">`;
+      <img class="tile-favicon" src="${escAttr(favicon)}" alt="" data-letter="${escAttr(letter)}">`;
   }
 
   tile.innerHTML = `
