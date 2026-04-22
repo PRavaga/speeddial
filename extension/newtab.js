@@ -12,21 +12,56 @@ let searchQuery = '';
 let activeGroupId = 'all'; // 'all' | group id number | 'ungrouped'
 let thumbnails = {};        // url → data:image/jpeg;base64,...
 
+// ----- Render caches (keyed DOM reuse, prevents flicker) -----
+const tileNodes = new Map();      // tab.id → HTMLElement
+const groupTabNodes = new Map();  // 'all' | number | 'ungrouped' → HTMLElement
+
 // ----- Render scheduler (anti-flicker) -----
 let renderFrame = null;
 let fullReloadPending = false;
+// Monotonic token: renderTiles() bails after its await if a newer render started.
+let renderVersion = 0;
+
+// Gate for the async tileCount skeleton re-render: once the initial boot has
+// resolved (success or error) we must NEVER repaint skeletons, since that
+// would clobber a retry-state error UI or a live tile grid.
+let initialLoadPending = true;
+
+// Chrome extension APIs should respond near-instantly. A hung query keeps the
+// user staring at skeletons forever, so race against a timeout and surface the
+// failure through the normal error path.
+// Hook: tests may set globalThis.__SPEED_DIAL_TEST_LOAD_TIMEOUT_MS before the
+// module loads to exercise the hung-query path without waiting 10 s.
+const LOAD_TIMEOUT_MS =
+  (typeof globalThis !== 'undefined' &&
+   Number.isFinite(globalThis.__SPEED_DIAL_TEST_LOAD_TIMEOUT_MS))
+    ? globalThis.__SPEED_DIAL_TEST_LOAD_TIMEOUT_MS
+    : 10000;
+function withTimeout(promise, ms, label) {
+  let t;
+  const timer = new Promise((_, reject) => {
+    t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timer]).finally(() => clearTimeout(t));
+}
 
 function scheduleRender(fullReload = false) {
   if (fullReload) fullReloadPending = true;
   if (renderFrame) return;
   renderFrame = requestAnimationFrame(async () => {
     renderFrame = null;
-    if (fullReloadPending) {
-      fullReloadPending = false;
-      await loadData();
-    } else {
-      renderGroupTabs();
-      await renderTiles();
+    try {
+      if (fullReloadPending) {
+        fullReloadPending = false;
+        await loadData();
+      } else {
+        renderGroupTabs();
+        await renderTiles();
+      }
+    } catch (e) {
+      // Live-update reloads shouldn't take down the UI if the Chrome API
+      // rejects or hangs (timeout). Log and keep the existing render intact.
+      console.error('scheduleRender failed', e);
     }
   });
 }
@@ -78,11 +113,30 @@ const syncSignoutBtn   = $('sync-signout-btn');
 // ===================================================================
 
 document.addEventListener('DOMContentLoaded', async () => {
-  await loadTheme();
-  await initAuth();
-  await initSync();
-  await loadActiveGroup();
-  await loadData();
+  // Paint skeletons immediately so the grid has shape while data loads.
+  // Use cached count if we have it; otherwise a sensible default.
+  renderSkeletons(DEFAULT_SKELETON_COUNT);
+  chrome.storage.local.get('tileCount').then(({ tileCount }) => {
+    // Guard against a late resolution after loadData has already finished
+    // (success → tiles painted, or failure → error UI). Only repaint
+    // skeletons while the initial boot is still pending.
+    if (!initialLoadPending) return;
+    if (typeof tileCount === 'number' && tileCount > 0 && tileNodes.size === 0) {
+      renderSkeletons(tileCount);
+    }
+  }).catch(() => {});
+
+  // Non-tab UI setup is isolated from tab-data failures so the page stays
+  // interactive (search, keyboard, sessions, settings, sync) even if tabs
+  // fail to load.
+  const safeInit = async (name, fn) => {
+    try { await fn(); } catch (e) { console.error(`init: ${name} failed`, e); }
+  };
+  await safeInit('loadTheme', loadTheme);
+  await safeInit('initAuth', initAuth);
+  await safeInit('initSync', initSync);
+  await safeInit('loadActiveGroup', loadActiveGroup);
+
   setupSearch();
   setupKeyboard();
   setupBackup();
@@ -92,7 +146,63 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadBackupStatus();
   renderSyncUI();
   setInterval(loadBackupStatus, 30000);
+
+  // Load tab data. On failure, replace skeletons with a retryable error state
+  // rather than leaving the shimmer running forever.
+  try {
+    await loadData();
+  } catch (e) {
+    console.error('loadData failed', e);
+    showLoadError(e);
+  } finally {
+    initialLoadPending = false;
+  }
 });
+
+function showLoadError(err) {
+  tileNodes.clear();
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <div class="empty-state">
+      <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+        <circle cx="20" cy="20" r="16" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M20 13v9M20 26v0.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <p>Couldn't load tabs${err?.message ? ` — ${esc(err.message)}` : ''}.</p>
+      <button class="reload-btn" type="button">Retry</button>
+    </div>`;
+  const node = wrap.firstElementChild;
+  tileGrid.replaceChildren(node);
+  node.querySelector('.reload-btn').addEventListener('click', async () => {
+    renderSkeletons(DEFAULT_SKELETON_COUNT);
+    try { await loadData(); } catch (e) { showLoadError(e); }
+  });
+  updateStats(0);
+}
+
+// ===================================================================
+// Skeleton placeholders
+// ===================================================================
+
+const DEFAULT_SKELETON_COUNT = 12;
+const MAX_SKELETON_COUNT = 48;
+
+function renderSkeletons(count) {
+  const n = Math.max(1, Math.min(MAX_SKELETON_COUNT, count | 0));
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < n; i++) {
+    const card = document.createElement('div');
+    card.className = 'tile-skeleton';
+    card.innerHTML = `
+      <div class="tile-skeleton-visual"></div>
+      <div class="tile-skeleton-info">
+        <div class="tile-skeleton-line"></div>
+        <div class="tile-skeleton-line"></div>
+      </div>`;
+    frag.appendChild(card);
+  }
+  tileGrid.replaceChildren(frag);
+}
 
 // ===================================================================
 // Data
@@ -100,8 +210,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadData() {
   const [rawTabs, rawGroups] = await Promise.all([
-    chrome.tabs.query({}),
-    chrome.tabGroups.query({})
+    withTimeout(chrome.tabs.query({}), LOAD_TIMEOUT_MS, 'chrome.tabs.query'),
+    withTimeout(chrome.tabGroups.query({}), LOAD_TIMEOUT_MS, 'chrome.tabGroups.query')
   ]);
 
   let currentTabId = null;
@@ -114,7 +224,7 @@ async function loadData() {
   groups = rawGroups;
 
   renderGroupTabs();
-  renderTiles();
+  await renderTiles();
 }
 
 function getVisibleTabs() {
@@ -149,55 +259,65 @@ function getGroupForTab(tab) {
 // ===================================================================
 
 function renderGroupTabs() {
-  groupTabsEl.innerHTML = '';
+  // Build desired entries: [{id, name, count, color}]
+  const entries = [];
+  entries.push({ id: 'all', name: 'All', count: tabs.length, color: null });
 
-  // "All" tab
-  const allCount = tabs.length;
-  groupTabsEl.appendChild(buildGroupTab('all', 'All', allCount, null));
-
-  // One tab per group
   const groupCounts = new Map();
   for (const tab of tabs) {
     if (tab.groupId !== -1) {
       groupCounts.set(tab.groupId, (groupCounts.get(tab.groupId) || 0) + 1);
     }
   }
-
   for (const g of groups) {
-    const count = groupCounts.get(g.id) || 0;
-    groupTabsEl.appendChild(buildGroupTab(g.id, g.title || 'Unnamed', count, g.color));
+    entries.push({ id: g.id, name: g.title || 'Unnamed', count: groupCounts.get(g.id) || 0, color: g.color });
   }
 
-  // Ungrouped tab (if any ungrouped tabs exist)
   const ungroupedCount = tabs.filter(t => t.groupId === -1).length;
   if (ungroupedCount > 0) {
-    groupTabsEl.appendChild(buildGroupTab('ungrouped', 'Ungrouped', ungroupedCount, null));
+    entries.push({ id: 'ungrouped', name: 'Ungrouped', count: ungroupedCount, color: null });
+  }
+
+  const wantIds = new Set(entries.map(e => e.id));
+
+  // Remove gone nodes
+  for (const [id, node] of groupTabNodes) {
+    if (!wantIds.has(id)) {
+      node.remove();
+      groupTabNodes.delete(id);
+    }
+  }
+
+  // Upsert + reorder
+  for (const e of entries) {
+    let node = groupTabNodes.get(e.id);
+    if (!node) {
+      node = createGroupTabSkeleton(e.id);
+      groupTabNodes.set(e.id, node);
+    }
+    updateGroupTab(node, e);
+    groupTabsEl.appendChild(node); // appending an existing child reorders, no anim replay
   }
 }
 
-function buildGroupTab(id, name, count, color) {
+function createGroupTabSkeleton(id) {
   const btn = document.createElement('button');
   btn.className = 'group-tab';
-  if (id === 'all' || !color) btn.classList.add('tab-all');
-  if (id === activeGroupId) btn.classList.add('active');
-
-  const hex = color ? (GROUP_COLORS[color] || GROUP_COLORS.grey) : '#4c4f62';
-  btn.style.setProperty('--tab-color', hex);
-
+  btn._gid = id;
   btn.innerHTML = `
-    <span class="group-tab-dot" style="background:${hex}"></span>
-    <span class="group-tab-name">${esc(name)}</span>
-    <span class="group-tab-count">${count}</span>`;
+    <span class="group-tab-dot"></span>
+    <span class="group-tab-name"></span>
+    <span class="group-tab-count"></span>`;
 
-  // Click → switch group view
   btn.addEventListener('click', () => {
-    activeGroupId = id;
+    const gid = btn._gid;
+    if (gid === activeGroupId) return;
+    activeGroupId = gid;
     saveActiveGroup();
     renderGroupTabs();
     renderTiles();
   });
 
-  // Double-click → rename (only for real groups)
   if (typeof id === 'number') {
     const nameEl = btn.querySelector('.group-tab-name');
     nameEl.addEventListener('dblclick', (e) => {
@@ -213,17 +333,39 @@ function buildGroupTab(id, name, count, color) {
     nameEl.addEventListener('blur', async () => {
       nameEl.contentEditable = 'false';
       const newTitle = nameEl.textContent.trim();
-      if (newTitle && newTitle !== name) {
+      const original = btn._origName || '';
+      if (newTitle && newTitle !== original) {
         try { await chrome.tabGroups.update(id, { title: newTitle }); } catch {}
       }
     });
     nameEl.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); nameEl.blur(); }
-      if (e.key === 'Escape') { nameEl.textContent = name; nameEl.blur(); }
+      if (e.key === 'Escape') { nameEl.textContent = btn._origName || ''; nameEl.blur(); }
     });
   }
 
   return btn;
+}
+
+function updateGroupTab(btn, entry) {
+  const { id, name, count, color } = entry;
+  const isAll = id === 'all' || !color;
+  btn.classList.toggle('tab-all', isAll);
+  btn.classList.toggle('active', id === activeGroupId);
+
+  const hex = color ? (GROUP_COLORS[color] || GROUP_COLORS.grey) : '#4c4f62';
+  btn.style.setProperty('--tab-color', hex);
+
+  const dot = btn.querySelector('.group-tab-dot');
+  if (dot.style.background !== hex) dot.style.background = hex;
+
+  const nameEl = btn.querySelector('.group-tab-name');
+  if (!nameEl.isContentEditable && nameEl.textContent !== name) nameEl.textContent = name;
+  btn._origName = name;
+
+  const countEl = btn.querySelector('.group-tab-count');
+  const countStr = String(count);
+  if (countEl.textContent !== countStr) countEl.textContent = countStr;
 }
 
 // ===================================================================
@@ -231,9 +373,11 @@ function buildGroupTab(id, name, count, color) {
 // ===================================================================
 
 async function renderTiles() {
+  const myVersion = ++renderVersion;
   const visible = getVisibleTabs();
 
   if (visible.length === 0) {
+    tileNodes.clear();
     const empty = document.createElement('div');
     empty.innerHTML = `
       <div class="empty-state">
@@ -248,13 +392,41 @@ async function renderTiles() {
     return;
   }
 
-  // Load thumbnails for visible tabs
+  // Load thumbnails before touching the DOM so a stale render can bail cleanly.
   await loadThumbnails(visible.map(t => t.url).filter(Boolean));
+  if (myVersion !== renderVersion) return; // newer render started; abandon
 
-  // Build all tiles in a fragment, then swap in one operation (no flicker)
-  const frag = document.createDocumentFragment();
-  visible.forEach((tab, i) => frag.appendChild(buildTile(tab, i)));
-  tileGrid.replaceChildren(frag);
+  // Clear any non-tile children (skeleton placeholders, prior .empty-state)
+  for (const child of [...tileGrid.children]) {
+    if (!child.classList.contains('tile')) child.remove();
+  }
+
+  // Cache the count so next cold load can paint the right number of skeletons
+  chrome.storage.local.set({ tileCount: visible.length }).catch(() => {});
+
+  const wantIds = new Set(visible.map(t => t.id));
+
+  // Remove tiles for tabs no longer visible
+  for (const [id, node] of tileNodes) {
+    if (!wantIds.has(id)) {
+      node.remove();
+      tileNodes.delete(id);
+    }
+  }
+
+  // Upsert + reorder. Stagger entrance animation only for brand-new tiles.
+  let newCount = 0;
+  for (const tab of visible) {
+    let tile = tileNodes.get(tab.id);
+    if (!tile) {
+      tile = createTileSkeleton();
+      tile.style.animationDelay = `${newCount * 30}ms`;
+      newCount++;
+      tileNodes.set(tab.id, tile);
+    }
+    updateTile(tile, tab);
+    tileGrid.appendChild(tile); // move-into-order; no animation replay for existing nodes
+  }
 
   updateStats(visible.length);
 }
@@ -272,42 +444,10 @@ async function loadThumbnails(urls) {
   }
 }
 
-function buildTile(tab, index) {
+function createTileSkeleton() {
   const tile = document.createElement('div');
   tile.className = 'tile';
-  if (tab.active) tile.classList.add('active');
-  if (tab.pinned) tile.classList.add('pinned');
-  tile.style.animationDelay = `${index * 30}ms`;
-
-  const group = getGroupForTab(tab);
-  const color = group ? (GROUP_COLORS[group.color] || GROUP_COLORS.grey) : '#4c4f62';
-  tile.style.setProperty('--tile-color', color);
-
-  let domain = '';
-  try { domain = new URL(tab.url || '').hostname.replace(/^www\./, ''); } catch {}
-
-  const favicon = faviconFor(tab.url) || tab.favIconUrl;
-  const letter = (domain[0] || '?').toUpperCase();
-  const showBadge = activeGroupId === 'all' && group;
-  const thumb = thumbnails[tab.url];
-
-  const titleHtml = searchQuery ? highlight(tab.title || 'Untitled', searchQuery) : esc(tab.title || 'Untitled');
-  const urlHtml = searchQuery ? highlight(domain, searchQuery) : esc(domain);
-
-  // Visual area: screenshot thumbnail if available, otherwise large favicon
-  // Note: no inline onerror — CSP blocks it in MV3. Handlers attached below.
-  let visualHtml;
-  if (thumb) {
-    visualHtml = `
-      <img class="tile-thumb" src="${escAttr(thumb)}" alt="">
-      <img class="tile-favicon-badge" src="${escAttr(favicon)}" alt="">`;
-  } else {
-    visualHtml = `
-      <img class="tile-favicon" src="${escAttr(favicon)}" alt="" data-letter="${escAttr(letter)}">`;
-  }
-
   tile.innerHTML = `
-    ${showBadge ? `<div class="tile-group-badge" title="${esc(group.title || 'Unnamed')}"></div>` : ''}
     <div class="tile-actions-overlay">
       <button class="tile-action-btn tile-retake" title="Retake screenshot">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -321,54 +461,157 @@ function buildTile(tab, index) {
         </svg>
       </button>
     </div>
-    <div class="tile-visual">${visualHtml}</div>
-    <div class="tile-info" title="${escAttr(tab.title || '')}">
-      <div class="tile-title">${titleHtml}</div>
-      <div class="tile-url">${urlHtml}</div>
+    <div class="tile-visual"></div>
+    <div class="tile-info">
+      <div class="tile-title"></div>
+      <div class="tile-url"></div>
     </div>`;
 
-  // Favicon error fallbacks (can't use inline onerror — CSP)
-  const faviconEl = tile.querySelector('.tile-favicon');
-  if (faviconEl) {
-    const swapToLetter = () => {
-      const letterDiv = document.createElement('div');
-      letterDiv.className = 'tile-letter';
-      letterDiv.textContent = faviconEl.dataset.letter || '?';
-      faviconEl.replaceWith(letterDiv);
-    };
-    faviconEl.addEventListener('error', swapToLetter, { once: true });
-    // Also catch broken images that load but render as 0x0 or empty
-    faviconEl.addEventListener('load', () => {
-      if (faviconEl.naturalWidth === 0) swapToLetter();
-    }, { once: true });
-  }
-  const badgeEl = tile.querySelector('.tile-favicon-badge');
-  if (badgeEl) {
-    badgeEl.addEventListener('error', () => { badgeEl.style.display = 'none'; }, { once: true });
-    badgeEl.addEventListener('load', () => {
-      if (badgeEl.naturalWidth === 0) badgeEl.style.display = 'none';
-    }, { once: true });
-  }
-
-  // Click → switch to tab
+  // Handlers attached once; read live tab from tile._tab.
   tile.addEventListener('click', (e) => {
     if (e.target.closest('.tile-action-btn')) return;
-    switchToTab(tab.id, tab.windowId);
+    const t = tile._tab;
+    if (t) switchToTab(t.id, t.windowId);
   });
-
-  // Close
   tile.querySelector('.tile-close').addEventListener('click', (e) => {
     e.stopPropagation();
-    closeTileTab(tab.id, tile);
+    const t = tile._tab;
+    if (t) closeTileTab(t.id, tile);
   });
-
-  // Retake screenshot
   tile.querySelector('.tile-retake').addEventListener('click', (e) => {
     e.stopPropagation();
-    retakeScreenshot(tab);
+    const t = tile._tab;
+    if (t) retakeScreenshot(t);
   });
 
   return tile;
+}
+
+function updateTile(tile, tab) {
+  tile._tab = tab;
+  tile.classList.toggle('active', !!tab.active);
+  tile.classList.toggle('pinned', !!tab.pinned);
+
+  const group = getGroupForTab(tab);
+  const color = group ? (GROUP_COLORS[group.color] || GROUP_COLORS.grey) : '#4c4f62';
+  tile.style.setProperty('--tile-color', color);
+
+  let domain = '';
+  try { domain = new URL(tab.url || '').hostname.replace(/^www\./, ''); } catch {}
+
+  const favicon = faviconFor(tab.url) || tab.favIconUrl;
+  const letter = (domain[0] || '?').toUpperCase();
+  const showBadge = activeGroupId === 'all' && !!group;
+  const thumb = thumbnails[tab.url];
+
+  // Group badge — add/remove from DOM so counts reflect visible badges only
+  let badge = tile.querySelector('.tile-group-badge');
+  if (showBadge) {
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.className = 'tile-group-badge';
+      tile.insertBefore(badge, tile.firstChild);
+    }
+    const badgeTitle = group.title || 'Unnamed';
+    if (badge.title !== badgeTitle) badge.title = badgeTitle;
+  } else if (badge) {
+    badge.remove();
+  }
+
+  // Title/URL (with optional search highlight)
+  const titleEl = tile.querySelector('.tile-title');
+  const urlEl = tile.querySelector('.tile-url');
+  const infoEl = tile.querySelector('.tile-info');
+  const titleHtml = searchQuery ? highlight(tab.title || 'Untitled', searchQuery) : esc(tab.title || 'Untitled');
+  const urlHtml = searchQuery ? highlight(domain, searchQuery) : esc(domain);
+  if (titleEl.innerHTML !== titleHtml) titleEl.innerHTML = titleHtml;
+  if (urlEl.innerHTML !== urlHtml) urlEl.innerHTML = urlHtml;
+  const infoTitle = tab.title || '';
+  if (infoEl.title !== infoTitle) infoEl.title = infoTitle;
+
+  // Visual area: thumb vs favicon. Only rebuild when mode changes.
+  const visual = tile.querySelector('.tile-visual');
+  const wantMode = thumb ? 'thumb' : 'favicon';
+  const prevMode = visual.dataset.mode;
+
+  if (prevMode !== wantMode) {
+    visual.dataset.mode = wantMode;
+    if (wantMode === 'thumb') {
+      visual.innerHTML = `
+        <img class="tile-thumb" alt="">
+        <img class="tile-favicon-badge" alt="">`;
+      const thumbImg = visual.querySelector('.tile-thumb');
+      const badgeImg = visual.querySelector('.tile-favicon-badge');
+      thumbImg.src = thumb;
+      badgeImg.src = favicon;
+      attachBadgeErrorHandlers(badgeImg);
+      visual.dataset.thumbSrc = thumb;
+      visual.dataset.faviconSrc = favicon;
+    } else {
+      visual.innerHTML = `<img class="tile-favicon" alt="">`;
+      const favImg = visual.querySelector('.tile-favicon');
+      favImg.dataset.letter = letter;
+      favImg.src = favicon;
+      attachFaviconErrorHandlers(favImg);
+      visual.dataset.faviconSrc = favicon;
+      delete visual.dataset.thumbSrc;
+    }
+  } else if (wantMode === 'thumb') {
+    const thumbImg = visual.querySelector('.tile-thumb');
+    const badgeImg = visual.querySelector('.tile-favicon-badge');
+    if (thumbImg && visual.dataset.thumbSrc !== thumb) {
+      thumbImg.src = thumb;
+      visual.dataset.thumbSrc = thumb;
+    }
+    if (badgeImg && visual.dataset.faviconSrc !== favicon) {
+      badgeImg.src = favicon;
+      badgeImg.style.display = '';
+      attachBadgeErrorHandlers(badgeImg);
+      visual.dataset.faviconSrc = favicon;
+    }
+  } else {
+    // favicon mode. On URL change, rebuild the <img> so a previously-failed
+    // favicon (now showing .tile-letter) gets another attempt with the new URL.
+    // Rebuilding also gives us a fresh element for the { once: true } handlers.
+    const faviconChanged = visual.dataset.faviconSrc !== favicon;
+    if (faviconChanged) {
+      visual.innerHTML = `<img class="tile-favicon" alt="">`;
+      const favImg = visual.querySelector('.tile-favicon');
+      favImg.dataset.letter = letter;
+      favImg.src = favicon;
+      attachFaviconErrorHandlers(favImg);
+      visual.dataset.faviconSrc = favicon;
+    } else {
+      const favImg = visual.querySelector('.tile-favicon');
+      if (favImg) {
+        favImg.dataset.letter = letter;
+      } else {
+        // Currently showing .tile-letter fallback with same URL; update glyph if domain changed
+        const letterEl = visual.querySelector('.tile-letter');
+        if (letterEl && letterEl.textContent !== letter) letterEl.textContent = letter;
+      }
+    }
+  }
+}
+
+function attachFaviconErrorHandlers(favImg) {
+  const swapToLetter = () => {
+    const letterDiv = document.createElement('div');
+    letterDiv.className = 'tile-letter';
+    letterDiv.textContent = favImg.dataset.letter || '?';
+    favImg.replaceWith(letterDiv);
+  };
+  favImg.addEventListener('error', swapToLetter, { once: true });
+  favImg.addEventListener('load', () => {
+    if (favImg.naturalWidth === 0) swapToLetter();
+  }, { once: true });
+}
+
+function attachBadgeErrorHandlers(badgeImg) {
+  badgeImg.addEventListener('error', () => { badgeImg.style.display = 'none'; }, { once: true });
+  badgeImg.addEventListener('load', () => {
+    if (badgeImg.naturalWidth === 0) badgeImg.style.display = 'none';
+  }, { once: true });
 }
 
 // ===================================================================

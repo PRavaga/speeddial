@@ -36,9 +36,9 @@ async function main() {
   console.log('\n── Console Audit & Change Validation ──\n');
 
   // ── Static file checks (no browser needed) ──
-  await test('manifest version bumped to 2.1.1', async () => {
+  await test('manifest version bumped to 2.2.0', async () => {
     const m = JSON.parse(fs.readFileSync(path.join(EXT_PATH, 'manifest.json'), 'utf8'));
-    assert(m.version === '2.1.1', `Version: ${m.version}`);
+    assert(m.version === '2.2.0', `Version: ${m.version}`);
   });
 
   await test('newtab.js uses faviconFor() first, tab.favIconUrl as fallback', async () => {

@@ -610,6 +610,164 @@ async function main() {
   });
 
   // ================================================================
+  // 10. SKELETON LOADING STATE (staggered connection)
+  // ================================================================
+  console.log('\n─── Skeleton Loading State ───');
+
+  await test('Skeleton cards render while data loads (slow chrome.tabs.query)', async () => {
+    // Page-scoped init script so the mock doesn't leak into later tests.
+    const slow = await context.newPage();
+    await slow.addInitScript(() => {
+      if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
+        const orig = chrome.tabs.query.bind(chrome.tabs);
+        // @ts-ignore — override with delayed wrapper
+        chrome.tabs.query = (...args: any[]) =>
+          new Promise((resolve, reject) => {
+            setTimeout(() => orig(...args).then(resolve, reject), 600);
+          });
+      }
+    });
+    await slow.goto(extUrl, { waitUntil: 'commit' });
+
+    // Skeletons render synchronously on DOMContentLoaded — should appear fast.
+    await slow.waitForSelector('.tile-skeleton', { timeout: 1500 });
+    const skeletonCount = await slow.locator('.tile-skeleton').count();
+    assert(skeletonCount > 0, `Expected skeleton cards during load, got ${skeletonCount}`);
+
+    // Skeleton must have both visual and info rows (matches tile shape)
+    const hasVisual = await slow.locator('.tile-skeleton-visual').count() > 0;
+    const hasLines  = await slow.locator('.tile-skeleton-line').count() >= 2;
+    assert(hasVisual, 'Skeleton missing .tile-skeleton-visual');
+    assert(hasLines, 'Skeleton missing two .tile-skeleton-line rows');
+
+    // Shimmer animation is wired via the ::after pseudo-element
+    const shimmers = await slow.locator('.tile-skeleton-visual').first().evaluate(el => {
+      return getComputedStyle(el, '::after').animationName;
+    });
+    assert(shimmers === 'skeletonShimmer', `Expected skeletonShimmer, got "${shimmers}"`);
+
+    // After the delayed query resolves, real tiles replace skeletons.
+    await slow.waitForSelector('.tile', { timeout: 5000 });
+    await slow.waitForTimeout(250);
+    const skeletonsAfter = await slow.locator('.tile-skeleton').count();
+    const tilesAfter = await slow.locator('.tile').count();
+    assert(skeletonsAfter === 0, `Skeletons should be cleared, got ${skeletonsAfter}`);
+    assert(tilesAfter > 0, `Expected tiles after load, got ${tilesAfter}`);
+
+    await slow.close();
+  });
+
+  // ================================================================
+  // 11. FAILURE PATHS — loadData throws, rapid render races
+  // ================================================================
+  console.log('\n─── Failure Paths ───');
+
+  await test('loadData failure shows retry state, UI stays interactive', async () => {
+    // Page-scoped mock so the throwing wrapper doesn't leak into later tests.
+    const errorPage = await context.newPage();
+    await errorPage.addInitScript(() => {
+      if (typeof chrome !== 'undefined' && chrome.tabs) {
+        // @ts-ignore — override with throwing wrapper
+        chrome.tabs.query = () => Promise.reject(new Error('simulated failure'));
+      }
+    });
+    await errorPage.goto(extUrl, { waitUntil: 'load' });
+
+    // Error state should appear with a retry button
+    await errorPage.waitForSelector('.empty-state .reload-btn', { timeout: 5000 });
+    const errorText = await errorPage.locator('.empty-state').textContent();
+    assert(/couldn.?t load tabs/i.test(errorText || ''), `Expected error message, got: ${errorText}`);
+
+    // Setups should have run despite loadData failing — `/` should focus search
+    await errorPage.locator('body').click(); // ensure focus is on body
+    await errorPage.keyboard.press('/');
+    const focusedId = await errorPage.evaluate(() => document.activeElement?.id);
+    assert(focusedId === 'search', `Expected search focused after '/', got: ${focusedId}`);
+
+    // Settings button should open the dropdown (setupSettings ran)
+    await errorPage.keyboard.press('Escape');
+    await errorPage.locator('#settings-btn').click();
+    const dropdownOpen = await errorPage.locator('#settings-dropdown.open').count();
+    assert(dropdownOpen === 1, 'Settings dropdown should open on click (setupSettings ran)');
+
+    await errorPage.close();
+  });
+
+  await test('Rapid group-switch does not leave stale tiles (render race)', async () => {
+    // Page-scoped mock. Widens the renderTiles race window by delaying the
+    // thumbnail storage read; the render-version token should make stale
+    // renders abandon before committing.
+    const racePage = await context.newPage();
+    await racePage.addInitScript(() => {
+      if (typeof chrome !== 'undefined' && chrome.storage?.local?.get) {
+        const orig = chrome.storage.local.get.bind(chrome.storage.local);
+        // @ts-ignore — delay storage reads to widen the render-race window
+        chrome.storage.local.get = (...args: any[]) =>
+          new Promise((resolve, reject) => {
+            setTimeout(() => orig(...args).then(resolve, reject), 120);
+          });
+      }
+    });
+    await racePage.goto(extUrl, { waitUntil: 'load' });
+    await racePage.waitForSelector('.tile, .empty-state', { timeout: 5000 });
+
+    const tabs = racePage.locator('.group-tab');
+    const tabCount = await tabs.count();
+    // The page must have actually loaded — if chrome.tabs.query was mocked to
+    // reject from another test's leaked init script, we'd see 0 group tabs
+    // and silently false-pass. Require ≥2 group tabs (All + at least one
+    // real one) to guarantee we're exercising the real render path.
+    assert(tabCount >= 2, `Expected at least 2 group tabs for a meaningful race test, got ${tabCount}. Mocks may be leaking across tests.`);
+
+    // Click rapidly across all group tabs without waiting for renders
+    for (let i = 0; i < tabCount; i++) {
+      await tabs.nth(i).click({ noWaitAfter: true });
+    }
+    // Click back to the first ("All") and let the final render commit
+    await tabs.nth(0).click();
+    await racePage.waitForTimeout(500);
+
+    // After the dust settles, every .tile in the DOM must correspond to the
+    // active group ("All" here, which includes every tab). No orphaned tiles
+    // from an intermediate group should remain.
+    const finalTileCount = await racePage.locator('.tile').count();
+    const statedCount = await racePage.evaluate(() => {
+      const m = document.querySelector('#stats .stat-value')?.textContent || '0';
+      return parseInt(m, 10);
+    });
+    assert(finalTileCount === statedCount,
+      `DOM tiles (${finalTileCount}) must match stats count (${statedCount}) after rapid switches`);
+
+    await racePage.close();
+  });
+
+  await test('Hung chrome.tabs.query times out and shows retry state', async () => {
+    // Simulate a Chrome API that never resolves. The LOAD_TIMEOUT_MS test hook
+    // shortens the race to 700ms so the test finishes quickly.
+    const hungPage = await context.newPage();
+    await hungPage.addInitScript(() => {
+      (globalThis as any).__SPEED_DIAL_TEST_LOAD_TIMEOUT_MS = 700;
+      if (typeof chrome !== 'undefined' && chrome.tabs) {
+        // @ts-ignore — never-resolving wrapper
+        chrome.tabs.query = () => new Promise(() => {});
+      }
+    });
+    await hungPage.goto(extUrl, { waitUntil: 'load' });
+
+    // Skeletons should be up first
+    await hungPage.waitForSelector('.tile-skeleton', { timeout: 1500 });
+
+    // After LOAD_TIMEOUT_MS (700ms) + margin, the error state should replace them
+    await hungPage.waitForSelector('.empty-state .reload-btn', { timeout: 3000 });
+    const skeletonsAfter = await hungPage.locator('.tile-skeleton').count();
+    assert(skeletonsAfter === 0, `Skeletons should be cleared after timeout, got ${skeletonsAfter}`);
+    const errorText = await hungPage.locator('.empty-state').textContent();
+    assert(/timed out/i.test(errorText || ''), `Expected timeout message, got: ${errorText}`);
+
+    await hungPage.close();
+  });
+
+  // ================================================================
   // SUMMARY
   // ================================================================
   console.log('\n' + '═'.repeat(50));

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Speed Dial",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "description": "Tab command center — organize, manage, and backup your browser tabs",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3k4bAVvaDpDyfdX/SpJ602xLi81LWr2ttu4tJnUXdYMiFHR4S/ufiQ+Y2dgGxoMP9y4aMDvi+5RDhXFCOHibe7jv0p6Oe3SjOvWWN/ZW+yCRsjmmDrxKNO97A8Wo7580fNCYeTfv5egMWl75e3hugW8XIUEo/koV2rfBWaCjdG3SCeJFQ+bOHR7Mk1aV4B5+vJbhZXxb0ZrGSsldjWwzaWF5wv8z4cWEIB6tPCRq9f4qA2NdFW5GKbJ2NPIc6GfUpgYQH9JLgoMyTyEagrRA7Z3fRmbz8jH5roPqQKyqimeBUVSKRE+39xRDZu+Clbh7rGk/7eSmqLw9G1vyjFo1twIDAQAB",
   "permissions": ["tabs", "tabGroups", "storage", "alarms", "favicon", "unlimitedStorage", "identity"],
