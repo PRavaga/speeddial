@@ -22,18 +22,51 @@ const THUMB_QUALITY = 0.5;
 // ===================================================================
 
 chrome.alarms.create('auto-backup', { periodInMinutes: 5 });
-chrome.alarms.create('sync-interval', { periodInMinutes: 15 });
+chrome.alarms.create('sync-interval', { periodInMinutes: 15 }); // safety-net fallback
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'auto-backup') await createBackup('auto');
   if (alarm.name === 'thumb-cleanup') await cleanupThumbnails();
-  if (alarm.name === 'sync-interval') {
+  if (alarm.name === 'sync-interval') await guardedSync().catch(() => {});
+});
+
+// ===================================================================
+// Sync-on-change trigger
+// ===================================================================
+//
+// Near-instant propagation: when user-visible state (snapshots, theme,
+// pinned sites) changes locally, push to the Worker after a short debounce
+// instead of waiting for the 15-min alarm. The alarm stays as a safety net.
+
+const SYNC_WATCH_KEYS = new Set(['backups', 'theme', 'pinnedSites']);
+const SYNC_DEBOUNCE_MS = 2000;
+let syncInProgress = false;
+let pendingSyncTimer = null;
+
+async function guardedSync() {
+  if (syncInProgress) return { ok: false, reason: 'sync already in progress' };
+  syncInProgress = true;
+  try {
     await initAuth();
     await initSync();
-    if (await isSignedIn()) {
-      try { await syncNow(); } catch {}
-    }
+    if (!(await isSignedIn())) return { ok: false, reason: 'not signed in' };
+    return await syncNow();
+  } finally {
+    syncInProgress = false;
   }
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  if (syncInProgress) return;
+  const relevant = Object.keys(changes).some(k => SYNC_WATCH_KEYS.has(k));
+  if (!relevant) return;
+
+  clearTimeout(pendingSyncTimer);
+  pendingSyncTimer = setTimeout(() => {
+    pendingSyncTimer = null;
+    guardedSync().catch(() => {});
+  }, SYNC_DEBOUNCE_MS);
 });
 
 chrome.runtime.onStartup.addListener(async () => {
@@ -86,12 +119,9 @@ chrome.tabs.onRemoved.addListener(() => {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'syncNow') {
-    (async () => {
-      await initAuth();
-      await initSync();
-      const result = await syncNow();
-      sendResponse(result);
-    })();
+    guardedSync()
+      .then(sendResponse)
+      .catch(e => sendResponse({ ok: false, reason: e?.message || String(e) }));
     return true; // async response
   }
 });

@@ -3,7 +3,18 @@
 // ===================================================================
 
 import { initAuth, signIn, signOut, isSignedIn, getUser } from './auth.js';
-import { initSync, syncNow, getSyncStatus } from './sync.js';
+import { initSync, getSyncStatus } from './sync.js';
+
+// Route sync through the service worker so its syncInProgress flag can
+// suppress the onChanged listener from firing a duplicate sync.
+async function syncNow() {
+  try {
+    const result = await chrome.runtime.sendMessage({ action: 'syncNow' });
+    return result || { ok: false, reason: 'no response' };
+  } catch (e) {
+    return { ok: false, reason: e?.message || String(e) };
+  }
+}
 
 // ----- State -----
 let tabs = [];
