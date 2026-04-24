@@ -3,6 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+    // Redirect the old domain to the canonical one. Fires before anything
+    // else renders — old bookmarks and shared links land on speeddial.dev.
+    if (location.hostname === 'speed-dial.ravaga.com') {
+      location.replace('https://speeddial.dev' + location.pathname + location.search + location.hash);
+    }
+  </script>
+  <link rel="canonical" href="https://speeddial.dev/">
   <title>Speed Dial — Tab Command Center for Chrome & Edge</title>
   <meta name="description" content="A new tab page that works with your open tabs — see them all as visual tiles, organized by groups, backed up automatically, and synced across browsers.">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
