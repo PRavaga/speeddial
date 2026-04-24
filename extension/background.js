@@ -41,11 +41,23 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 const SYNC_WATCH_KEYS = new Set(['backups', 'theme', 'pinnedSites']);
 const SYNC_DEBOUNCE_MS = 2000;
 let syncInProgress = false;
+// Set when a relevant write lands during an in-flight sync — the finally
+// block schedules one follow-up sync so we don't silently lose the update.
+let syncDirty = false;
 let pendingSyncTimer = null;
+
+function scheduleSync() {
+  clearTimeout(pendingSyncTimer);
+  pendingSyncTimer = setTimeout(() => {
+    pendingSyncTimer = null;
+    guardedSync().catch(() => {});
+  }, SYNC_DEBOUNCE_MS);
+}
 
 async function guardedSync() {
   if (syncInProgress) return { ok: false, reason: 'sync already in progress' };
   syncInProgress = true;
+  syncDirty = false; // reset; this run will subsume any writes up to now
   try {
     await initAuth();
     await initSync();
@@ -53,20 +65,27 @@ async function guardedSync() {
     return await syncNow();
   } finally {
     syncInProgress = false;
+    // If a relevant local write arrived during the sync, run one more.
+    // Chrome's storage.onChanged de-dupes equal-value writes, so the
+    // applyRemoteData step inside syncNow won't re-fire this unless a
+    // genuinely new local change occurred.
+    if (syncDirty) {
+      syncDirty = false;
+      scheduleSync();
+    }
   }
 }
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (syncInProgress) return;
   const relevant = Object.keys(changes).some(k => SYNC_WATCH_KEYS.has(k));
   if (!relevant) return;
 
-  clearTimeout(pendingSyncTimer);
-  pendingSyncTimer = setTimeout(() => {
-    pendingSyncTimer = null;
-    guardedSync().catch(() => {});
-  }, SYNC_DEBOUNCE_MS);
+  if (syncInProgress) {
+    syncDirty = true;
+    return;
+  }
+  scheduleSync();
 });
 
 chrome.runtime.onStartup.addListener(async () => {

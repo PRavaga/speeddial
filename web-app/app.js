@@ -17,6 +17,12 @@ const state = {
   loading: false,
 };
 
+// Close any open user-menu dropdown on outside click. Registered once at
+// module load so re-renders don't pile up document-level click handlers.
+document.addEventListener('click', () => {
+  document.querySelectorAll('.user-menu-dropdown.open').forEach(d => d.classList.remove('open'));
+});
+
 // -------------------------------------------------------------------
 // Boot
 // -------------------------------------------------------------------
@@ -172,7 +178,6 @@ function renderTopbar() {
     e.stopPropagation();
     dropdown.classList.toggle('open');
   });
-  document.addEventListener('click', () => dropdown.classList.remove('open'));
   menu.appendChild(menuBtn);
   menu.appendChild(dropdown);
   bar.appendChild(menu);
@@ -348,7 +353,7 @@ function renderGroupBlock(title, color, tabs) {
 function renderTabRow(tab) {
   const a = el('a', {
     class: 'tab-row',
-    href: tab.url || '#',
+    href: safeUrl(tab.url),
     target: '_blank',
     rel: 'noopener noreferrer'
   });
@@ -383,10 +388,14 @@ function renderTabRow(tab) {
 }
 
 function openAllTabs(s) {
-  // Collect all tabs across groups + ungrouped
+  // Collect all tabs across groups + ungrouped, filtered to safe schemes
   const urls = [];
-  for (const g of s.groups || []) for (const t of g.tabs || []) if (t.url) urls.push(t.url);
-  for (const t of s.ungrouped || []) if (t.url) urls.push(t.url);
+  for (const g of s.groups || []) for (const t of g.tabs || []) {
+    if (t.url && safeUrl(t.url) !== '#') urls.push(t.url);
+  }
+  for (const t of s.ungrouped || []) {
+    if (t.url && safeUrl(t.url) !== '#') urls.push(t.url);
+  }
 
   if (urls.length === 0) return;
 
@@ -459,6 +468,18 @@ function fmtDate(ts) {
 
 function domainOf(url) {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url || ''; }
+}
+
+// Only allow schemes safe to link/window.open from a page context.
+// Blocks javascript:, data:, blob:, file:, and friends.
+const SAFE_SCHEMES = new Set(['http:', 'https:', 'ftp:']);
+function safeUrl(u) {
+  if (!u) return '#';
+  try {
+    const url = new URL(u);
+    if (SAFE_SCHEMES.has(url.protocol)) return u;
+  } catch {}
+  return '#';
 }
 
 function googleFavicon(url) {
