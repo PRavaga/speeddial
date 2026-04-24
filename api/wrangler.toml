@@ -9,4 +9,4 @@ id = "4fc3a16c6f7d4de79e33fcdc43f66960"
 
 [vars]
 GOOGLE_CLIENT_ID = "1017927287759-mgaib9am82c58fl9e6u7m7ht10kj1bp9.apps.googleusercontent.com"
-ALLOWED_ORIGINS = "chrome-extension://hpmdmgbcjcekhmfalaodhgeemilbepcj,chrome-extension://miphkkgceicjjenpfeajamfdceiapppe"
+ALLOWED_ORIGINS = "chrome-extension://hpmdmgbcjcekhmfalaodhgeemilbepcj,chrome-extension://miphkkgceicjjenpfeajamfdceiapppe,https://app.speeddial.dev"
