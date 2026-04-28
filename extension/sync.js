@@ -7,6 +7,14 @@ import { encrypt, decrypt } from './crypto.js';
 
 const SYNC_API = 'https://speeddial-sync.apps-0fb.workers.dev';
 
+// Sessions are immutable, union-merged, and accumulate forever. Two caps:
+//   LOCAL_MAX — chrome.storage.local ceiling (matches MAX_BACKUPS in background.js)
+//   SYNC_MAX  — only the newest N are pushed to the server, keeping the
+//               encrypted payload well under the worker's 5 MB body limit
+//               even when users have many tabs per session.
+const LOCAL_MAX_SESSIONS = 100;
+const SYNC_MAX_SESSIONS = 50;
+
 export async function initSync() {
   // No-op — API URL is hardcoded. Kept for interface compatibility.
 }
@@ -52,7 +60,10 @@ async function pushToServer(doc, expectedVersion = 0) {
   const idToken = await getValidIdToken();
   if (!user || !idToken) throw new Error('Not authenticated');
 
-  const encrypted = await encrypt(doc, user.sub);
+  // Truncate sessions to SYNC_MAX_SESSIONS for the wire payload only — local
+  // storage retains up to LOCAL_MAX_SESSIONS, so users don't lose history.
+  const wireDoc = { ...doc, sessions: (doc.sessions || []).slice(0, SYNC_MAX_SESSIONS) };
+  const encrypted = await encrypt(wireDoc, user.sub);
 
   const resp = await fetch(`${SYNC_API}/api/sync`, {
     method: 'PUT',
@@ -65,6 +76,9 @@ async function pushToServer(doc, expectedVersion = 0) {
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
+    if (resp.status === 413) {
+      throw new Error('Sync payload exceeds 5 MB. Trim sessions in the panel and retry.');
+    }
     throw new Error(err.error || `Push failed: ${resp.status}`);
   }
 }
@@ -112,7 +126,7 @@ async function collectLocalData() {
   return {
     version: storage.syncVersion || 0,
     lastModified: Date.now(),
-    sessions: (storage.backups || []).slice(0, 100).map(stripSessionFat),
+    sessions: (storage.backups || []).slice(0, LOCAL_MAX_SESSIONS).map(stripSessionFat),
     settings: { theme: storage.theme || 'dark' },
     pinnedSites: storage.pinnedSites || []
   };
@@ -134,7 +148,7 @@ function stripSessionFat(session) {
 
 async function applyRemoteData(doc) {
   const updates = {};
-  if (doc.sessions) updates.backups = doc.sessions.slice(0, 100);
+  if (doc.sessions) updates.backups = doc.sessions.slice(0, LOCAL_MAX_SESSIONS);
   if (doc.settings?.theme) updates.theme = doc.settings.theme;
   if (doc.pinnedSites) updates.pinnedSites = doc.pinnedSites;
   await chrome.storage.local.set(updates);
@@ -167,9 +181,9 @@ function mergeSessions(localSessions, remoteSessions) {
     }
   }
 
-  // Sort newest first, keep max 20
+  // Sort newest first, cap at LOCAL_MAX_SESSIONS — wire truncation happens later in pushToServer.
   merged.sort((a, b) => b.timestamp - a.timestamp);
-  return merged.slice(0, 100);
+  return merged.slice(0, LOCAL_MAX_SESSIONS);
 }
 
 function mergeSettings(local, remote, localTs, remoteTs) {

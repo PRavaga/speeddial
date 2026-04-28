@@ -24,11 +24,20 @@ let activeGroupId = 'all'; // 'all' | group id number | 'ungrouped'
 let thumbnails = {};        // url → data:image/jpeg;base64,...
 
 // ----- Render caches (keyed DOM reuse, prevents flicker) -----
-const tileNodes = new Map();      // tab.id → HTMLElement
+// Tiles are keyed by stable identity (url|groupId|pinned|nthOccurrence) — NOT
+// tab.id, which is session-scoped and renumbers across browser restarts and
+// session restores. URL-based keying lets the same tab survive an Edge restart
+// without re-creating its DOM node (which would re-trigger the entrance
+// animation and look like a "reload flicker").
+const tileNodes = new Map();      // stable key → HTMLElement
 const groupTabNodes = new Map();  // 'all' | number | 'ungrouped' → HTMLElement
 
 // ----- Render scheduler (anti-flicker) -----
-let renderFrame = null;
+// 80ms debounce window: a session-restore burst from Chrome fires dozens of
+// onCreated/onRemoved events within ~30-50ms; batching them into a single
+// loadData() avoids redundant chrome.tabs.query() round trips.
+const RENDER_DEBOUNCE_MS = 80;
+let renderTimeout = null;
 let fullReloadPending = false;
 // Monotonic token: renderTiles() bails after its await if a newer render started.
 let renderVersion = 0;
@@ -58,9 +67,9 @@ function withTimeout(promise, ms, label) {
 
 function scheduleRender(fullReload = false) {
   if (fullReload) fullReloadPending = true;
-  if (renderFrame) return;
-  renderFrame = requestAnimationFrame(async () => {
-    renderFrame = null;
+  if (renderTimeout) return;
+  renderTimeout = setTimeout(async () => {
+    renderTimeout = null;
     try {
       if (fullReloadPending) {
         fullReloadPending = false;
@@ -74,7 +83,7 @@ function scheduleRender(fullReload = false) {
       // rejects or hangs (timeout). Log and keep the existing render intact.
       console.error('scheduleRender failed', e);
     }
-  });
+  }, RENDER_DEBOUNCE_MS);
 }
 
 // ----- Constants -----
@@ -415,25 +424,39 @@ async function renderTiles() {
   // Cache the count so next cold load can paint the right number of skeletons
   chrome.storage.local.set({ tileCount: visible.length }).catch(() => {});
 
-  const wantIds = new Set(visible.map(t => t.id));
+  // Compute stable identity keys. Multiple tabs can share url+group+pinned,
+  // so disambiguate with an occurrence index in document order.
+  const occurrenceCounts = new Map();
+  const orderedKeys = [];
+  const keyToTab = new Map();
+  for (const tab of visible) {
+    const baseKey = `${tab.url || ''}|${tab.groupId ?? -1}|${tab.pinned ? 1 : 0}`;
+    const n = occurrenceCounts.get(baseKey) || 0;
+    occurrenceCounts.set(baseKey, n + 1);
+    const key = `${baseKey}|${n}`;
+    orderedKeys.push(key);
+    keyToTab.set(key, tab);
+  }
+  const wantKeys = new Set(orderedKeys);
 
   // Remove tiles for tabs no longer visible
-  for (const [id, node] of tileNodes) {
-    if (!wantIds.has(id)) {
+  for (const [key, node] of tileNodes) {
+    if (!wantKeys.has(key)) {
       node.remove();
-      tileNodes.delete(id);
+      tileNodes.delete(key);
     }
   }
 
   // Upsert + reorder. Stagger entrance animation only for brand-new tiles.
   let newCount = 0;
-  for (const tab of visible) {
-    let tile = tileNodes.get(tab.id);
+  for (const key of orderedKeys) {
+    const tab = keyToTab.get(key);
+    let tile = tileNodes.get(key);
     if (!tile) {
       tile = createTileSkeleton();
       tile.style.animationDelay = `${newCount * 30}ms`;
       newCount++;
-      tileNodes.set(tab.id, tile);
+      tileNodes.set(key, tile);
     }
     updateTile(tile, tab);
     tileGrid.appendChild(tile); // move-into-order; no animation replay for existing nodes
@@ -1103,4 +1126,11 @@ function toast(msg) {
     el.classList.add('out');
     setTimeout(() => el.remove(), 200);
   }, 2000);
+}
+
+// Test hooks. Only attached when set by addInitScript before module load —
+// production page never sets the flag, so no surface area in normal use.
+if (typeof globalThis !== 'undefined' && globalThis.__SPEED_DIAL_TEST_HOOKS) {
+  globalThis.__sdTestForceReload = () => loadData();
+  globalThis.__sdTestTileMap = () => tileNodes;
 }

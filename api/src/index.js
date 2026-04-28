@@ -2,7 +2,9 @@
 // Speed Dial — Sync API (Cloudflare Worker)
 // ===================================================================
 
-const MAX_BODY_SIZE = 1024 * 1024; // 1MB
+// 5 MB envelope. Cloudflare KV per-value ceiling is 25 MB; encrypted sync
+// payloads with ~50 sessions of moderate tab counts sit well under this.
+const MAX_BODY_SIZE = 5 * 1024 * 1024;
 const RATE_LIMIT_PER_MIN = 60;
 
 export default {

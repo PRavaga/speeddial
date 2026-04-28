@@ -767,6 +767,67 @@ async function main() {
     await hungPage.close();
   });
 
+  await test('Session restore (same URLs, new tab IDs) preserves tile DOM nodes', async () => {
+    // Regression: when Edge restores a session after a browser update, every
+    // tab gets a brand-new numeric id even though urls/groups are unchanged.
+    // The keyed-diff render must identify tiles by URL+group+pinned, not
+    // tab.id, otherwise every tile is re-created and the entrance animation
+    // cascades like a reload (the "flicker after browser update" bug).
+
+    const baseTabs = [
+      { id: 100, url: 'https://example.com/', title: 'Example', groupId: -1, pinned: false, windowId: 1, index: 0, active: false },
+      { id: 101, url: 'https://github.com/', title: 'GitHub',  groupId: -1, pinned: false, windowId: 1, index: 1, active: false },
+      { id: 102, url: 'https://google.com/', title: 'Google',  groupId: -1, pinned: false, windowId: 1, index: 2, active: false },
+    ];
+
+    const restorePage = await context.newPage();
+    await restorePage.addInitScript((tabs) => {
+      (globalThis as any).__SPEED_DIAL_TEST_HOOKS = true;
+      (globalThis as any).__sdMockTabs = tabs;
+      if (typeof chrome !== 'undefined' && chrome.tabs?.query) {
+        // @ts-ignore — replace with mock that reads from __sdMockTabs each call
+        chrome.tabs.query = () => Promise.resolve((globalThis as any).__sdMockTabs);
+      }
+      if (typeof chrome !== 'undefined' && chrome.tabGroups?.query) {
+        // @ts-ignore — no groups in this fixture
+        chrome.tabGroups.query = () => Promise.resolve([]);
+      }
+    }, baseTabs);
+
+    await restorePage.goto(extUrl, { waitUntil: 'load' });
+    await restorePage.waitForSelector('.tile', { timeout: 5000 });
+
+    const beforeCount = await restorePage.locator('.tile').count();
+    assert(beforeCount === 3, `Expected 3 tiles initially, got ${beforeCount}`);
+
+    // Mark each tile so we can detect node identity preservation.
+    await restorePage.evaluate(() => {
+      document.querySelectorAll('.tile').forEach((el, i) => {
+        (el as any).dataset.testMark = `mark-${i}`;
+      });
+    });
+
+    // Simulate session restore: same URLs, brand-new numeric ids.
+    await restorePage.evaluate(() => {
+      const cur = (globalThis as any).__sdMockTabs;
+      (globalThis as any).__sdMockTabs = cur.map((t: any) => ({ ...t, id: t.id + 10_000 }));
+      return (globalThis as any).__sdTestForceReload?.();
+    });
+    await restorePage.waitForTimeout(300);
+
+    // Tiles must keep their DOM nodes (and thus their test-mark attrs) because
+    // the URL+group+pinned identity is unchanged across the id renumber.
+    const surviving = await restorePage.evaluate(() => {
+      const tiles = Array.from(document.querySelectorAll('.tile'));
+      return tiles.filter(t => (t as HTMLElement).dataset.testMark).length;
+    });
+    assert(surviving === beforeCount,
+      `Expected all ${beforeCount} tile DOM nodes to survive session restore, got ${surviving}. ` +
+      `Tiles are being re-created on tab.id renumber → flicker regression.`);
+
+    await restorePage.close();
+  });
+
   // ================================================================
   // SUMMARY
   // ================================================================

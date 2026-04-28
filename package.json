@@ -1,6 +1,6 @@
 {
   "name": "speeddial",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "private": true,
   "scripts": {
     "test": "npx tsx test/extension.test.ts && npx tsx test/crypto.test.ts && npx tsx test/console-audit.test.ts"
